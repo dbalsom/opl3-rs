@@ -80,7 +80,7 @@ impl Opl3Chip {
     /// ```
     pub fn generate(&mut self, buffer: &mut [i16]) {
         if buffer.len() < 4 {
-            panic!("Buffer must be at least 2 samples long.");
+            panic!("Buffer must be at least 4 samples long.");
         }
         unsafe {
             bindings::Opl3Generate(&mut self.chip, buffer.as_mut_ptr());
@@ -104,7 +104,7 @@ impl Opl3Chip {
     /// ```
     pub fn generate_resampled(&mut self, buffer: &mut [i16]) {
         if buffer.len() < 4 {
-            panic!("Buffer must be at least 2 samples long.");
+            panic!("Buffer must be at least 4 samples long.");
         }
         unsafe {
             bindings::Opl3GenerateResampled(&mut self.chip, buffer.as_mut_ptr());
@@ -194,7 +194,7 @@ impl Opl3Chip {
     /// ```
     pub fn generate_4ch(&mut self, buffer: &mut [i16]) {
         if buffer.len() < 4 {
-            panic!("Buffer must be at least 2 samples long.");
+            panic!("Buffer must be at least 4 samples long.");
         }
         unsafe {
             bindings::Opl3Generate4Ch(&mut self.chip, buffer.as_mut_ptr());
@@ -218,7 +218,7 @@ impl Opl3Chip {
     /// ```
     pub fn generate_4ch_resampled(&mut self, buffer: &mut [i16]) {
         if buffer.len() < 4 {
-            panic!("Buffer must be at least 2 samples long.");
+            panic!("Buffer must be at least 4 samples long.");
         }
         unsafe {
             bindings::Opl3Generate4ChResampled(&mut self.chip, buffer.as_mut_ptr());
@@ -237,10 +237,14 @@ impl Opl3Chip {
     /// use opl3_rs::Opl3Chip;
     ///
     /// let mut chip = Opl3Chip::new(44100);
-    /// let mut buffer = [0i16; 4];
-    /// chip.generate_4ch_stream(&mut buffer);
+    /// let mut buffer1 = [0i16; 4];
+    /// let mut buffer2 = [0i16; 4];
+    /// chip.generate_4ch_stream(&mut buffer1, &mut buffer2);
     /// ```
     pub fn generate_4ch_stream(&mut self, buffer1: &mut [i16], buffer2: &mut [i16]) {
+        if buffer1.len() < 4 || buffer2.len() < 4 {
+            panic!("Buffers must be at least 4 samples long.");
+        }
         unsafe {
             bindings::Opl3Generate4ChStream(&mut self.chip, buffer1.as_mut_ptr(), buffer2.as_mut_ptr(), buffer1.len() as u32);
         }
