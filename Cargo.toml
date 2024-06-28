@@ -3,7 +3,7 @@ name = "opl3-rs"
 description = "Rust bindings for Nuked-OPL3, a Yamaha OPL3 FM-synthesis chip emulation library."
 authors = ["Daniel Balsom"]
 license = "LGPL-2.1"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 repository = "https://github.com/dbalsom/opl3-rs"
 keywords = ["OPL", "emulation", "audio", "synthesizer", "retro"]
@@ -16,4 +16,3 @@ cc = "1.0"
 heck = "0.5.0"
 
 [dependencies]
-heck = "0.5.0"

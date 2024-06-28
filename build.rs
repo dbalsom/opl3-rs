@@ -1,3 +1,4 @@
+use std::env;
 use std::path::PathBuf;
 use heck::ToUpperCamelCase;
 use bindgen::callbacks::{EnumVariantValue, ParseCallbacks};
@@ -33,7 +34,7 @@ fn main() {
             println!("Bindings built successfully!");
 
             // Write the bindings to the $OUT_DIR/bindings.rs file
-            let out_path = PathBuf::from("src/generated/");
+            let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
             println!("Writing bindings to {:?}", out_path.join("bindings.rs"));
             match bindings
                 .write_to_file(out_path.join("bindings.rs")) {
