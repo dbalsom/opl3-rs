@@ -239,17 +239,17 @@ impl MusicPlayer {
         //println!("Hello from main_loop()!");
         let mut busy = false;
         for i in 0..3 {
-            if (self.get_timer() >= self.tunes[i].release_time
-                && get_key_on(&mut self.opl3, self.tunes[i].channel))
+            if self.get_timer() >= self.tunes[i].release_time
+                && get_key_on(&mut self.opl3, self.tunes[i].channel)
             {
                 //println!("Releasing note.");
                 set_key_on(&mut self.opl3, self.tunes[i].channel, false);
             }
-            if (self.get_timer() >= self.tunes[i].next_note_time && self.tunes[i].data.peek() != 0)
+            if self.get_timer() >= self.tunes[i].next_note_time && self.tunes[i].data.peek() != 0
             {
                 self.parse_tune(i);
             }
-            if (self.tunes[i].data.peek() != 0 || self.get_timer() < self.tunes[i].next_note_time) {
+            if self.tunes[i].data.peek() != 0 || self.get_timer() < self.tunes[i].next_note_time {
                 busy = true;
             }
         }
@@ -265,32 +265,32 @@ impl MusicPlayer {
     }
 
     fn parse_tune(&mut self, t: usize) {
-        while (self.tunes[t].data.peek() != 0) {
-            if (self.tunes[t].data.peek() == b'<' && self.tunes[t].octave > 1) {
+        while self.tunes[t].data.peek() != 0 {
+            if self.tunes[t].data.peek() == b'<' && self.tunes[t].octave > 1 {
                 // Decrease octave if greater than 1.
                 self.tunes[t].octave -= 1;
-            } else if (self.tunes[t].data.peek() == b'>' && self.tunes[t].octave < 7) {
+            } else if self.tunes[t].data.peek() == b'>' && self.tunes[t].octave < 7 {
                 // Increase octave if less than 7.
                 self.tunes[t].octave += 1;
-            } else if (self.tunes[t].data.peek() == b'o'
+            } else if self.tunes[t].data.peek() == b'o'
                 && self.tunes[t].data.peek_next() >= b'1'
-                && self.tunes[t].data.peek_next() <= b'7')
+                && self.tunes[t].data.peek_next() <= b'7'
             {
                 // Set octave.
                 self.tunes[t].octave = self.tunes[t].data.peek_next() as i32 - 48;
                 self.tunes[t].data.next();
-            } else if (self.tunes[t].data.peek() == b'l') {
+            } else if self.tunes[t].data.peek() == b'l' {
                 // Set default note duration.
                 self.tunes[t].data.next();
                 let duration = self.parse_number(t);
-                if (duration != 0) {
+                if duration != 0 {
                     self.tunes[t].note_duration = duration as i32;
                 }
-            } else if (self.tunes[t].data.peek() == b'm') {
+            } else if self.tunes[t].data.peek() == b'm' {
                 // Set note length in percent.
                 self.tunes[t].data.next();
                 self.tunes[t].note_length = self.parse_number(t) as u32;
-            } else if (self.tunes[t].data.peek() == b't') {
+            } else if self.tunes[t].data.peek() == b't' {
                 // Set song tempo.
                 self.tunes[t].data.next();
                 self.tempo = self.parse_number(t) as u32;
@@ -298,12 +298,12 @@ impl MusicPlayer {
                     // Tempo cannot be 0
                     self.tempo = 1;
                 }
-            } else if (self.tunes[t].data.peek() == b'p' || self.tunes[t].data.peek() == b'r') {
+            } else if self.tunes[t].data.peek() == b'p' || self.tunes[t].data.peek() == b'r' {
                 // Pause.
                 self.tunes[t].data.next();
                 self.tunes[t].next_note_time = self.get_timer() + self.parse_duration(t);
                 break;
-            } else if (self.tunes[t].data.peek() >= b'a' && self.tunes[t].data.peek() <= b'g') {
+            } else if self.tunes[t].data.peek() >= b'a' && self.tunes[t].data.peek() <= b'g' {
                 // Next character is a note A..G so play it.
                 self.parse_note(t);
                 break;
@@ -320,10 +320,10 @@ impl MusicPlayer {
         let mut note: u8 = (self.tunes[t].data.peek() - 97) * 3;
         self.tunes[t].data.next();
 
-        if (self.tunes[t].data.peek() == b'-') {
+        if self.tunes[t].data.peek() == b'-' {
             note += 1;
             self.tunes[t].data.next();
-        } else if (self.tunes[t].data.peek() == b'+') {
+        } else if self.tunes[t].data.peek() == b'+' {
             note += 2;
             self.tunes[t].data.next();
         }
@@ -368,7 +368,7 @@ impl MusicPlayer {
 
         // See whether we need to double the duration
         let base;
-        if (self.tunes[t].data.peek_next() == b'.') {
+        if self.tunes[t].data.peek_next() == b'.' {
             self.tunes[t].data.next();
             base = 6;
         } else {
@@ -385,13 +385,13 @@ impl MusicPlayer {
 
     fn parse_number(&mut self, t: usize) -> u8 {
         let mut number = 0;
-        if (self.tunes[t].data.peek() != 0
+        if self.tunes[t].data.peek() != 0
             && self.tunes[t].data.peek() >= b'0'
-            && self.tunes[t].data.peek() <= b'9')
+            && self.tunes[t].data.peek() <= b'9'
         {
-            while (self.tunes[t].data.peek() != 0
+            while self.tunes[t].data.peek() != 0
                 && self.tunes[t].data.peek() >= b'0'
-                && self.tunes[t].data.peek() <= b'9')
+                && self.tunes[t].data.peek() <= b'9'
             {
                 number = number * 10 + (self.tunes[t].data.get() - 48);
             }
