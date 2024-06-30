@@ -10,6 +10,10 @@ provide example implementations for easier integrations with emulators.
 
 For now, you can access the Nuked-OPL3 API via the `Opl3Chip` struct.
 
+# Docs
+
+Documentation can be found on [docs.rs](https://docs.rs/opl3-rs/latest/opl3_rs/)
+
 # Examples
 
 An example of music playback is provided in the play_tune directory under /examples.
