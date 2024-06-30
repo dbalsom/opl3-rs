@@ -1,7 +1,8 @@
 //! Original code by Maarten Janssen (maarten@cheerful.nl) 2016-04-13
-//! Most recent version of the library can be found at my GitHub: https://github.com/DhrBaksteen/ArduinoOPL2
-//! Hacked for a OPL2LPT test program by pdewacht@gmail.com.
+//! From: https://github.com/DhrBaksteen/ArduinoOPL2
+//! Hacked for a OPL2LPT test program by Peter De Wachter (pdewacht@gmail.com).
 //! Rewritten in Rust by Daniel Balsom for opl3-rs
+
 #![allow(dead_code)]
 
 use std::cmp;
