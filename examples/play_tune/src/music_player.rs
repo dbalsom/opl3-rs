@@ -167,10 +167,6 @@ impl MusicPlayer {
         }
     }
 
-    pub fn buffer_len(&self) -> usize {
-        self.sample_buf.len()
-    }
-
     pub fn setup(&mut self) {
         self.tempo = 120;
         self.opl3.reset(None);
@@ -245,8 +241,7 @@ impl MusicPlayer {
                 //println!("Releasing note.");
                 set_key_on(&mut self.opl3, self.tunes[i].channel, false);
             }
-            if self.get_timer() >= self.tunes[i].next_note_time && self.tunes[i].data.peek() != 0
-            {
+            if self.get_timer() >= self.tunes[i].next_note_time && self.tunes[i].data.peek() != 0 {
                 self.parse_tune(i);
             }
             if self.tunes[i].data.peek() != 0 || self.get_timer() < self.tunes[i].next_note_time {

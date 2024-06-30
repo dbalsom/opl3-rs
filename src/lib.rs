@@ -113,6 +113,10 @@ impl Opl3Device {
     /// The OPL3 registers are not natively readable. `Opl3Device` keeps a copy of all registers
     /// written so that they can be queried. This internal state will become desynchronized if
     /// registers are written directly to the OPL3 chip.
+    ///
+    /// # Arguments
+    ///
+    /// * `reg` - The internal register index to read.
     pub fn read_register(&self, reg: u16) -> u8 {
         if reg < 256 {
             self.registers[reg as usize]
@@ -123,6 +127,11 @@ impl Opl3Device {
 
     /// Write to the specified register directly. This will update the internal state of the
     /// Opl3Device so that the register value can later be read.
+    ///
+    /// # Arguments
+    ///
+    /// * `reg` - The internal register index to write.
+    /// * `value` - The value to write to the register.
     pub fn write_register(&mut self, reg: u16, value: u8) {
         if reg < 256 {
             self.stats.data_writes = self.stats.data_writes.saturating_add(1);
@@ -137,6 +146,10 @@ impl Opl3Device {
         }
     }
 
+    /// Reset the Opl3Device.
+    /// Reset the state of the OPL3 device, including the internal registers and the internal
+    /// Nuked-OPL3 instance.
+    ///
     /// # Arguments
     ///
     /// * `sample_rate` - An option that either contains the new sample rate to reinitialize with
@@ -150,10 +163,23 @@ impl Opl3Device {
         self.stats = Opl3DeviceStats::default();
     }
 
-    pub fn generate(&mut self, buffer: &mut [i16]) {
-        self.inner_chip.lock().unwrap().generate(buffer);
+    /// Generate an audio sample.
+    /// Generate a single stereo audio sample from the OPL3 device.
+    ///
+    /// # Arguments
+    ///
+    /// * `sample` - A mutable reference to a two-element slice that will receive the audio sample.
+    ///              The first element will contain the left channel sample, and the second element
+    ///              will contain the right channel sample.
+    pub fn generate(&mut self, sample: &mut [i16]) {
+        self.inner_chip.lock().unwrap().generate(sample);
     }
 
+    /// Generate a stream of audio samples.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer` - A mutable reference to a buffer slice that will be filled with audio samples.
     pub fn generate_samples(&mut self, buffer: &mut [i16]) {
         self.inner_chip.lock().unwrap().generate_stream(buffer);
     }
