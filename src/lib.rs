@@ -7,34 +7,157 @@
 #![doc = include_str!("./docs.md")]
 
 /*
- * Nuked OPL3 is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation, either version 2.1
- * of the License, or (at your option) any later version.
- *
- * Nuked OPL3 is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with Nuked OPL3. If not, see <https://www.gnu.org/licenses/>.
+* Nuked OPL3 is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Lesser General Public License as
+* published by the Free Software Foundation, either version 2.1
+* of the License, or (at your option) any later version.
+*
+* Nuked OPL3 is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Lesser General Public License for more details.
+*
+* You should have received a copy of the GNU Lesser General Public License
+* along with Nuked OPL3. If not, see <https://www.gnu.org/licenses/>.
 
- *  Nuked OPL3 emulator.
- *  Thanks:
- *      MAME Development Team(Jarek Burczynski, Tatsuyuki Satoh):
- *          Feedback and Rhythm part calculation information.
- *      forums.submarine.org.uk(carbon14, opl3):
- *          Tremolo and phase generator calculation information.
- *      OPLx decapsulated(Matthew Gambrell, Olli Niemitalo):
- *          OPL2 ROMs.
- *      siliconpr0n.org(John McMaster, digshadow):
- *          YMF262 and VRC VII decaps and die shots.
- *
- * version: 1.8
- */
+*  Nuked OPL3 emulator.
+*  Thanks:
+*      MAME Development Team(Jarek Burczynski, Tatsuyuki Satoh):
+*          Feedback and Rhythm part calculation information.
+*      forums.submarine.org.uk(carbon14, opl3):
+*          Tremolo and phase generator calculation information.
+*      OPLx decapsulated(Matthew Gambrell, Olli Niemitalo):
+*          OPL2 ROMs.
+*      siliconpr0n.org(John McMaster, digshadow):
+*          YMF262 and VRC VII decaps and die shots.
+*
+* version: 1.8
+*/
+
+use std::sync::{Arc, Mutex};
+
+unsafe impl Send for Opl3Chip {}
 
 mod bindings;
+
+/// The `Opl3DeviceStats` struct contains statistics about the OPL3 device.
+/// It can be retrieved via the `get_stats` function on `Opl3Device`.
+#[derive(Default)]
+pub struct Opl3DeviceStats {
+    /// The number of writes to the OPL3 data register since reset.
+    pub data_writes: usize,
+    /// The number of writes to the OPL3 address register since reset.
+    pub addr_writes: usize,
+    /// The number of reads from the OPL3 status register since reset.
+    pub status_reads: usize,
+    /// The number of samples generated since reset.
+    pub samples_generated: usize,
+}
+
+/// The `Opl3Device` struct provides convenience functions for fully implementing an OPL3 device on
+/// top of Nuked-OPL3.
+/// By keeping a copy of all registers written, we can implement a read_register function.
+pub struct Opl3Device {
+    addr_reg: u8,
+    status_reg: u8,
+    sample_rate: u32,
+    registers: [u8; 256],
+    stats: Opl3DeviceStats,
+    inner_chip: Arc<Mutex<Opl3Chip>>,
+}
+
+impl Opl3Device {
+    /// Create a new OPL3 device instance.
+    /// `Opl3Device` is a convenience wrapper around the Nuked-OPL3's direct wrapper, `Opl3Chip`.
+    /// It provides the rest of an OPL3 implementation on top of the chip, including register
+    /// tracking and a read_register function.
+    pub fn new(sample_rate: u32) -> Self {
+        Opl3Device {
+            addr_reg: 0,
+            status_reg: 0,
+            sample_rate,
+            registers: [0; 256],
+            stats: Opl3DeviceStats::default(),
+            inner_chip: Arc::new(Mutex::new(Opl3Chip::new(sample_rate))),
+        }
+    }
+
+    /// Write a byte to the OPL3 device's Address register.
+    /// This function, along with write_data, is likely the primary interface for an emulator
+    /// implementing an OPL device.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The register address to write to the OPL3 device, in the range 0..=255.
+    pub fn write_address(&mut self, addr: u8) {
+        if (addr as u16) < 256 {
+            self.status_reg = addr;
+        }
+    }
+
+    /// Write a byte to the OPL3 device's Data register.
+    /// This function, along with write_address, is likely the primary interface function for an
+    /// emulator implementing an OPL device.
+    ///
+    /// The actual internal register to be written should be set by writing to the OPL3 address
+    /// register via `write_address` before calling `write_data`.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The byte of data to write to the OPL3 device.
+    pub fn write_data(&mut self, data: u8) {
+        self.write_register(self.addr_reg as u16, data);
+    }
+
+    /// Return the value of the given chip register from internal state.
+    /// The OPL3 registers are not natively readable. `Opl3Device` keeps a copy of all registers
+    /// written so that they can be queried. This internal state will become desynchronized if
+    /// registers are written directly to the OPL3 chip.
+    pub fn read_register(&self, reg: u16) -> u8 {
+        if reg < 256 {
+            self.registers[reg as usize]
+        } else {
+            0
+        }
+    }
+
+    /// Write to the specified register directly. This will update the internal state of the
+    /// Opl3Device so that the register value can later be read.
+    pub fn write_register(&mut self, reg: u16, value: u8) {
+        if reg < 256 {
+            self.stats.data_writes = self.stats.data_writes.saturating_add(1);
+
+            //println!("{:03X}:{:02X} ({})", reg, value, self.stats.data_writes);
+
+            self.registers[reg as usize] = value;
+            self.inner_chip
+                .lock()
+                .unwrap()
+                .write_register_buffered(reg, value);
+        }
+    }
+
+    /// # Arguments
+    ///
+    /// * `sample_rate` - An option that either contains the new sample rate to reinitialize with
+    ///                   or None to keep the current sample rate.
+    pub fn reset(&mut self, sample_rate: Option<u32>) {
+        let new_sample_rate = sample_rate.unwrap_or(self.sample_rate);
+        self.inner_chip.lock().unwrap().reset(new_sample_rate);
+        for reg in 0..256 {
+            self.write_register(reg, 0);
+        }
+        self.stats = Opl3DeviceStats::default();
+    }
+
+    pub fn generate(&mut self, buffer: &mut [i16]) {
+        self.inner_chip.lock().unwrap().generate(buffer);
+    }
+
+    pub fn generate_samples(&mut self, buffer: &mut [i16]) {
+        self.inner_chip.lock().unwrap().generate_stream(buffer);
+    }
+}
 
 /// The `Opl3Chip` struct provides a safe interface for interacting with the Nuked-OPL3 library.
 pub struct Opl3Chip {
@@ -60,6 +183,26 @@ impl Opl3Chip {
             let mut chip: bindings::Opl3Chip = std::mem::zeroed();
             bindings::Opl3Reset(&mut chip, sample_rate); // Initialize with a default sample rate, for example
             Opl3Chip { chip }
+        }
+    }
+
+    /// Reinitialize the OPL3 chip instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `sample_rate` - The sample rate to initialize the OPL3 chip with.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opl3_rs::Opl3Chip;
+    ///
+    /// let mut chip = Opl3Chip::new(44100);
+    /// chip.reset(44100);
+    /// ```
+    pub fn reset(&mut self, sample_rate: u32) {
+        unsafe {
+            bindings::Opl3Reset(&mut self.chip, sample_rate);
         }
     }
 
@@ -161,6 +304,8 @@ impl Opl3Chip {
 
     /// Generates a stream of resampled audio samples.
     ///
+    /// The number of samples generated is determined by the size of the buffer.
+    ///
     /// # Arguments
     ///
     /// * `buffer` - A mutable reference to a buffer that will be filled with resampled audio samples.
@@ -176,7 +321,11 @@ impl Opl3Chip {
     /// ```
     pub fn generate_stream(&mut self, buffer: &mut [i16]) {
         unsafe {
-            bindings::Opl3GenerateStream(&mut self.chip, buffer.as_mut_ptr(), buffer.len() as u32);
+            bindings::Opl3GenerateStream(
+                &mut self.chip,
+                buffer.as_mut_ptr(),
+                buffer.len() as u32 / 2,
+            );
         }
     }
 
@@ -230,32 +379,40 @@ impl Opl3Chip {
 
     /// Generates a stream of 4 channel resampled audio samples.
     ///
+    /// The number of samples is determined by the size of the input buffers.
+    ///
     /// # Arguments
     ///
-    /// * `buffer` - A mutable reference to a buffer that will be filled with resampled audio samples.
-    ///
+    /// * `buffer1` - A mutable reference to a slice that will be filled with resampled audio samples.
+    /// * `buffer2` - A mutable reference to a slice that will be filled with resampled audio samples.
+    ///               The length of buffer1 should equal the length of buffer2.
     /// # Example
     ///
     /// ```
     /// use opl3_rs::Opl3Chip;
     ///
     /// let mut chip = Opl3Chip::new(44100);
-    /// let mut buffer1 = [0i16; 4];
-    /// let mut buffer2 = [0i16; 4];
+    /// let mut buffer1 = [0i16; 1024];
+    /// let mut buffer2 = [0i16; 1024];
     /// chip.generate_4ch_stream(&mut buffer1, &mut buffer2);
     /// ```
     pub fn generate_4ch_stream(&mut self, buffer1: &mut [i16], buffer2: &mut [i16]) {
+        if buffer1.len() != buffer2.len() {
+            panic!("Buffers must be the same length.");
+        }
         if buffer1.len() < 4 || buffer2.len() < 4 {
             panic!("Buffers must be at least 4 samples long.");
         }
         unsafe {
-            bindings::Opl3Generate4ChStream(&mut self.chip, buffer1.as_mut_ptr(), buffer2.as_mut_ptr(), buffer1.len() as u32);
+            bindings::Opl3Generate4ChStream(
+                &mut self.chip,
+                buffer1.as_mut_ptr(),
+                buffer2.as_mut_ptr(),
+                buffer1.len() as u32 / 2,
+            );
         }
     }
-
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-}
+mod tests {}

@@ -1361,6 +1361,7 @@ void OPL3_Reset(opl3_chip *chip, uint32_t samplerate)
 
 void OPL3_WriteReg(opl3_chip *chip, uint16_t reg, uint8_t v)
 {
+    //printf(">>> In OPL3_WriteReg: reg=%04x, v=%02x\n", reg, v);
     uint8_t high = (reg >> 8) & 0x01;
     uint8_t regm = reg & 0xff;
     switch (regm & 0xf0)
@@ -1471,6 +1472,7 @@ void OPL3_WriteReg(opl3_chip *chip, uint16_t reg, uint8_t v)
 
 void OPL3_WriteRegBuffered(opl3_chip *chip, uint16_t reg, uint8_t v)
 {
+    //printf(">>> In WriteRegBuffered: reg=%04x, v=%02x\n", reg, v);
     uint64_t time1, time2;
     opl3_writebuf *writebuf;
     uint32_t writebuf_last;
@@ -1520,11 +1522,23 @@ void OPL3_Generate4ChStream(opl3_chip *chip, int16_t *sndptr1, int16_t *sndptr2,
 
 void OPL3_GenerateStream(opl3_chip *chip, int16_t *sndptr, uint32_t numsamples)
 {
+
     uint_fast32_t i;
 
+    int16_t min = INT16_MAX;
+    int16_t max = 0;
     for(i = 0; i < numsamples; i++)
     {
         OPL3_GenerateResampled(chip, sndptr);
+
+        if (sndptr[0] < min) {
+            min = sndptr[0];
+        }
+        if (sndptr[0] > max) {
+            max = sndptr[0];
+        }
         sndptr += 2;
     }
+
+    //printf(">>> In OPL3_GenerateStream. Min: %d Max: %d\n", min, max);
 }

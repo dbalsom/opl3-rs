@@ -1,0 +1,12 @@
+[package]
+name = "play_tune"
+version = "0.1.2"
+edition = "2021"
+publish = false
+
+[dependencies]
+"opl3-rs" = { path = "../.." }
+"rodio" = "0.18"
+"chrono" = "0.4"
+"timer" = "0.2"
+"crossbeam-channel" = "0.5"
