@@ -3,7 +3,7 @@
 //! Original code (C) Maarten Janssen (maarten@cheerful.nl) 2016-04-13
 //! https://github.com/DhrBaksteen/ArduinoOPL2
 //! Hacked for a OPL2LPT test program Peter De Wachter (pdewacht@gmail.com).
-//! https://github.com/pdewacht/adlipt/issues
+//! https://github.com/pdewacht/adlipt
 //! Rewritten in Rust by Daniel Balsom for opl3-rs
 //!
 //! Permission is hereby granted, free of charge, to any person obtaining a copy of this software
