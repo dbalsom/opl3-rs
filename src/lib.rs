@@ -42,7 +42,7 @@ mod bindings;
 
 /// The `Opl3DeviceStats` struct contains statistics about the OPL3 device.
 /// It can be retrieved via the `get_stats` function on `Opl3Device`.
-#[derive(Default)]
+#[derive(Copy, Clone, Default)]
 pub struct Opl3DeviceStats {
     /// The number of writes to the OPL3 data register since reset.
     pub data_writes: usize,
@@ -50,7 +50,8 @@ pub struct Opl3DeviceStats {
     pub addr_writes: usize,
     /// The number of reads from the OPL3 status register since reset.
     pub status_reads: usize,
-    /// The number of samples generated since reset.
+    /// The number of samples generated since reset. A stereo pair (left and right) is considered
+    /// one sample.
     pub samples_generated: usize,
 }
 
@@ -82,6 +83,11 @@ impl Opl3Device {
         }
     }
 
+    /// Retrieve the statistics for the OPL3 device in the form of an `Opl3DeviceStats` struct.
+    pub fn stats(&self) -> Opl3DeviceStats {
+        self.stats
+    }
+
     /// Write a byte to the OPL3 device's Address register.
     /// This function, along with write_data, is likely the primary interface for an emulator
     /// implementing an OPL device.
@@ -104,9 +110,14 @@ impl Opl3Device {
     ///
     /// # Arguments
     ///
-    /// * `data` - The byte of data to write to the OPL3 device.
-    pub fn write_data(&mut self, data: u8) {
-        self.write_register(self.addr_reg as u16, data);
+    /// * `data`     - The byte of data to write to the OPL3 device.
+    /// * `buffered` - Whether to write the data in buffered mode. In buffered mode, Nuked-OPL3
+    ///                will store the write in a buffer and execute it after any necessary delay.
+    ///                This is useful for controlling the library manually, but if you are
+    ///                implementing an emulator the software controlling the OPL3 module will
+    ///                likely write registers with appropriate timings.
+    pub fn write_data(&mut self, data: u8, buffered: bool) {
+        self.write_register(self.addr_reg as u16, data, buffered);
     }
 
     /// Return the value of the given chip register from internal state.
@@ -132,17 +143,26 @@ impl Opl3Device {
     ///
     /// * `reg` - The internal register index to write.
     /// * `value` - The value to write to the register.
-    pub fn write_register(&mut self, reg: u16, value: u8) {
+    /// * `buffered` - Whether to write the data in buffered mode. In buffered mode, Nuked-OPL3
+    ///                will store the write in a buffer and execute it after any necessary delay.
+    ///                This is useful for controlling the library manually, but if you are
+    ///                implementing an emulator the software controlling the OPL3 module will
+    ///                likely write registers with appropriate timings.
+    pub fn write_register(&mut self, reg: u16, value: u8, buffered: bool) {
         if reg < 256 {
             self.stats.data_writes = self.stats.data_writes.saturating_add(1);
 
             //println!("{:03X}:{:02X} ({})", reg, value, self.stats.data_writes);
 
             self.registers[reg as usize] = value;
-            self.inner_chip
-                .lock()
-                .unwrap()
-                .write_register_buffered(reg, value);
+            if buffered {
+                self.inner_chip
+                    .lock()
+                    .unwrap()
+                    .write_register_buffered(reg, value);
+            } else {
+                self.inner_chip.lock().unwrap().write_register(reg, value);
+            }
         }
     }
 
@@ -158,13 +178,12 @@ impl Opl3Device {
         let new_sample_rate = sample_rate.unwrap_or(self.sample_rate);
         self.inner_chip.lock().unwrap().reset(new_sample_rate);
         for reg in 0..256 {
-            self.write_register(reg, 0);
+            self.write_register(reg, 0, true);
         }
         self.stats = Opl3DeviceStats::default();
     }
 
-    /// Generate an audio sample.
-    /// Generate a single stereo audio sample from the OPL3 device.
+    /// Generate a 2 channel audio sample in interleaved i16 format.
     ///
     /// # Arguments
     ///
@@ -175,11 +194,12 @@ impl Opl3Device {
         self.inner_chip.lock().unwrap().generate(sample);
     }
 
-    /// Generate a stream of audio samples.
+    /// Generate a stream of 2 channel, interleaved audio samples in i16 format.
     ///
     /// # Arguments
     ///
-    /// * `buffer` - A mutable reference to a buffer slice that will be filled with audio samples.
+    /// * `buffer` - A mutable reference to a buffer slice that will be filled with stereo, i
+    ///              interleaved audio samples.
     pub fn generate_samples(&mut self, buffer: &mut [i16]) {
         self.inner_chip.lock().unwrap().generate_stream(buffer);
     }
@@ -207,7 +227,7 @@ impl Opl3Chip {
     pub fn new(sample_rate: u32) -> Self {
         unsafe {
             let mut chip: bindings::Opl3Chip = std::mem::zeroed();
-            bindings::Opl3Reset(&mut chip, sample_rate); // Initialize with a default sample rate, for example
+            bindings::Opl3Reset(&mut chip, sample_rate);
             Opl3Chip { chip }
         }
     }
@@ -217,6 +237,8 @@ impl Opl3Chip {
     /// # Arguments
     ///
     /// * `sample_rate` - The sample rate to initialize the OPL3 chip with.
+    ///                   I have not tested the effects of reinitializing the chip with a different
+    ///                   sample rate than the one initially used.
     ///
     /// # Example
     ///
@@ -403,14 +425,19 @@ impl Opl3Chip {
         }
     }
 
-    /// Generates a stream of 4 channel resampled audio samples.
+    /// Generates a stream of 4-channel audio samples, resampled to the configured sample rate.
+    /// The OPL3 was capable of 4-channel output, although this feature was not widely used. Most
+    /// cards simply didn't provide 4-channel outputs, although there now exist modern reproduction
+    /// cards that do.
     ///
     /// The number of samples is determined by the size of the input buffers.
     ///
     /// # Arguments
     ///
-    /// * `buffer1` - A mutable reference to a slice that will be filled with resampled audio samples.
-    /// * `buffer2` - A mutable reference to a slice that will be filled with resampled audio samples.
+    /// * `buffer1` - A mutable reference to a slice that will be filled with the first stereo
+    ///               audio samples, interleaved between left and right channels.
+    /// * `buffer2` - A mutable reference to a slice that will be filled with audio samples for the
+    ///               channels 2 and 3.
     ///               The length of buffer1 should equal the length of buffer2.
     /// # Example
     ///

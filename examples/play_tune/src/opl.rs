@@ -1,7 +1,26 @@
-//! Original code by Maarten Janssen (maarten@cheerful.nl) 2016-04-13
-//! From: https://github.com/DhrBaksteen/ArduinoOPL2
-//! Hacked for a OPL2LPT test program by Peter De Wachter (pdewacht@gmail.com).
+//! OPL helper functions and definitions. These functions comprise tasks such as setting notes,
+//! instruments, and frequency blocks.
+//!
+//! Original code (C) Maarten Janssen (maarten@cheerful.nl) 2016-04-13
+//! https://github.com/DhrBaksteen/ArduinoOPL2
+//! Hacked for a OPL2LPT test program Peter De Wachter (pdewacht@gmail.com).
+//! https://github.com/pdewacht/adlipt/issues
 //! Rewritten in Rust by Daniel Balsom for opl3-rs
+//!
+//! Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+//! and associated documentation files (the “Software”), to deal in the Software without
+//! restriction, including without limitation the rights to use, copy, modify, merge, publish,
+//! distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+//! Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or
+// substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+// BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
 
 #![allow(dead_code)]
 
@@ -55,15 +74,16 @@ pub fn set_instrument(opl3: &mut Opl3Device, channel: usize, instrument: &[u8; 1
         opl3.write_register(
             OPL_INSTRUMENT_BASE_REGS[i % 6] + get_register_offset(channel, (i > 5) as usize),
             *byte,
+            true,
         );
     }
 }
 
 pub fn set_waveform_select(opl3: &mut Opl3Device, enable: bool) {
     if enable {
-        opl3.write_register(0x01, opl3.read_register(0x01) | 0x20);
+        opl3.write_register(0x01, opl3.read_register(0x01) | 0x20, true);
     } else {
-        opl3.write_register(0x01, opl3.read_register(0x01) & 0xDF);
+        opl3.write_register(0x01, opl3.read_register(0x01) & 0xDF, true);
     }
 }
 
@@ -88,6 +108,7 @@ pub fn set_block(opl3: &mut Opl3Device, channel: u8, octave: u8) {
     opl3.write_register(
         reg,
         (opl3.read_register(reg) & 0xE3) | ((octave & 0x07) << 2),
+        true,
     );
 }
 
@@ -102,9 +123,9 @@ pub fn set_key_on(opl3: &mut Opl3Device, channel: u8, key_on: bool) {
     let reg: u16 = 0xB0 + cmp::max(0x00, cmp::min(channel as u16, 0x08));
     let old_reg = opl3.read_register(reg);
     if key_on {
-        opl3.write_register(reg, old_reg | 0x20);
+        opl3.write_register(reg, old_reg | 0x20, true);
     } else {
-        opl3.write_register(reg, old_reg & 0xDF);
+        opl3.write_register(reg, old_reg & 0xDF, true);
     }
 }
 
@@ -138,10 +159,11 @@ pub fn get_frequency(opl3: &mut Opl3Device, channel: u8) -> u16 {
 /// Returns the register number that was written to.
 pub fn set_frequency(opl3: &mut Opl3Device, channel: u8, frequency: u16) -> u16 {
     let reg = 0xA0 + cmp::max(0x00, cmp::min(channel as u16, 0x08));
-    opl3.write_register(reg, (frequency & 0xFF) as u8);
+    opl3.write_register(reg, (frequency & 0xFF) as u8, true);
     opl3.write_register(
         reg + 0x10,
         (opl3.read_register(reg + 0x10) & 0xFC) | ((frequency & 0x0300) >> 8) as u8,
+        true,
     );
     return reg;
 }
