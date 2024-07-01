@@ -1,6 +1,11 @@
-# opl3-rs
+opl3-rs
+=======
 
-`opl3-rs` is a small library to provide bindings for the [Nuked-OPL3 library](https://github.com/nukeykt/Nuked-OPL3).
+A small library to provide bindings for the [Nuked-OPL3 library](https://github.com/nukeykt/Nuked-OPL3).
+
+[![Crates.io version][crate-img]][crate]
+[![Changelog][changelog-img]](CHANGELOG.md)
+[![Documentation][docs-img]][docs]
 
 # Usage
 
@@ -24,3 +29,13 @@ This example uses the rodio library for audio playback and crossbeam channels fo
 [Nuked-OPL3](https://github.com/nukeykt/Nuked-OPL3) is (C) 2013-2020 Nuke.YKT and licensed under LGPL 2.1
 
 play_tune example based off code by Maarten Janssen and Peter De Wachter.
+
+[crate]:         https://crates.io/crates/opl3-rs
+
+[crate-img]:     https://img.shields.io/crates/v/opl3-rs.svg
+
+[changelog-img]: https://img.shields.io/badge/changelog-online-blue.svg
+
+[docs]:          https://docs.rs/opl3-rs
+
+[docs-img]:      https://img.shields.io/badge/docs-online-blue.svg
