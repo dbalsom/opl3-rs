@@ -164,10 +164,11 @@ pub struct MusicPlayer {
     opl3: Opl3Device,
     sender: Sender<CallbackMessage>,
     playing: bool,
+    debug: bool,
 }
 
 impl MusicPlayer {
-    pub fn new(sample_rate: u32, sender: Sender<CallbackMessage>) -> MusicPlayer {
+    pub fn new(sample_rate: u32, sender: Sender<CallbackMessage>, debug: bool) -> MusicPlayer {
         let samples_per_interval = (sample_rate / TIMER_FREQ as u32) as usize;
         println!("Samples per interval: {}", samples_per_interval);
         MusicPlayer {
@@ -178,6 +179,7 @@ impl MusicPlayer {
             opl3: Opl3Device::new(sample_rate),
             sender,
             playing: false,
+            debug,
         }
     }
 
@@ -222,18 +224,6 @@ impl MusicPlayer {
             }
             self.main_loop();
             self.opl3.generate_samples(&mut self.sample_buf);
-
-            /*
-            let min = self.sample_buf.iter().cloned().fold(i16::MAX, i16::min);
-            let max = self.sample_buf.iter().cloned().fold(i16::MIN, i16::max);
-            println!(
-                "Sending {} samples, min: {}, max: {}, Example: {:?}",
-                self.sample_buf.len(),
-                min,
-                max,
-                &self.sample_buf[0..16]
-            );
-            */
 
             self.sender
                 .send(CallbackMessage::HaveSamples(self.sample_buf.clone()))
@@ -356,20 +346,23 @@ impl MusicPlayer {
         );
         set_frequency(&mut self.opl3, self.tunes[t].channel, f);
 
-        println!(
-            "Index: {:05} Next: {:05} Char: {} Note: {:02}, channel: {} octave: {} freq: {:04} timer: {:05} duration: {} length: {} release_time: {}",
-            note_idx,
-            self.tunes[t].data.index(),
-            note_char,
-            note,
-            self.tunes[t].channel,
-            self.tunes[t].octave,
-            f,
-            self.get_timer(),
-            duration,
-            self.tunes[t].note_length,
-            self.tunes[t].release_time
-        );
+        if self.debug {
+            println!(
+                "Index: {:05} Next: {:05} Char: {} Note: {:02}, channel: {} octave: {} freq: {:04} timer: {:05} duration: {} length: {} release_time: {}",
+                note_idx,
+                self.tunes[t].data.index(),
+                note_char,
+                note,
+                self.tunes[t].channel,
+                self.tunes[t].octave,
+                f,
+                self.get_timer(),
+                duration,
+                self.tunes[t].note_length,
+                self.tunes[t].release_time
+            );
+        }
+
         set_key_on(&mut self.opl3, self.tunes[t].channel, true);
     }
 

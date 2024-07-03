@@ -24,9 +24,12 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
 
-use std::io::Write;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use bpaf::*;
 use chrono::Duration;
 use crossbeam_channel::unbounded;
 use rodio::cpal::traits::HostTrait;
@@ -44,6 +47,44 @@ mod opl_instruments;
 
 const TIMER_FREQ: i64 = 100; // We will set a timer callback at 100Hz
 
+#[derive(Debug, Clone)]
+struct Out {
+    debug: Option<bool>,
+    test_note: Option<bool>,
+    output_wav: Option<PathBuf>,
+}
+
+fn opts() -> OptionParser<Out> {
+    // Set up bpaf argument parsing.
+    let debug = short('d')
+        .long("debug")
+        .help("Activate debug mode")
+        .switch()
+        .fallback(false)
+        .optional();
+
+    let test_note = short('t')
+        .long("test_note")
+        .help("Play a single test note for 1 second.")
+        .switch()
+        .fallback(false)
+        .optional();
+
+    let output_wav = short('w')
+        .long("wav_file")
+        .help("WAV File to write")
+        .argument::<PathBuf>("FILE")
+        .optional();
+
+    construct!(Out {
+        debug,
+        test_note,
+        output_wav
+    })
+    .to_options()
+    .descr("opl3-rs: play_tune example")
+}
+
 fn main() {
     // This example uses rodio for playback.
     // rodio is built on top of the lower level 'cpal' audio library. If there is something we
@@ -53,6 +94,9 @@ fn main() {
     // However, I haven't found a way to retrieve the sample rate from a rodio stream, so we
     // will open the default device via cpal first, query the sample rate, then open the
     // rodio output stream from the cpal device.
+
+    // Get the command line options.
+    let opts = opts().run();
 
     // Possible improvement here: enumerate devices and let user select - or - attempt to open
     // other devices if the default device fails.
@@ -80,27 +124,42 @@ fn main() {
         device_name, sample_rate, channels, sample_format
     );
 
-    // This was a test used during debugging to play a single note. Add a command-line option
-    // to select between playing the test note or the example music.
-    //play_note(sample_rate, stream_handle, true);
+    let mut wav_out = None;
 
-    play_music(sample_rate, stream_handle, false);
+    if let Some(filename) = opts.output_wav {
+        // If we've specified a wave file for output, open it now and create a BufWriter for it.
+        let file = File::create(filename).expect("Couldn't create output file.");
+        wav_out = Some(BufWriter::new(file));
+    }
+
+    // Play the test note if option -t was specified, otherwise play music.
+    if opts.test_note.is_some_and(|b| b) {
+        play_note::<BufWriter<File>>(sample_rate, stream_handle, wav_out.as_mut());
+    } else {
+        play_music::<BufWriter<File>>(
+            sample_rate,
+            stream_handle,
+            wav_out.as_mut(),
+            opts.debug.unwrap_or(false),
+        );
+    }
 }
 
 /// Initialize the MusicPlayer but only play a single, sustained note for 1 second.
 /// This is useful for debugging and testing the audio output if the music player isn't working.
-/// The generated samples are saved to a file named "test.raw".
-///
-/// They can be viewed via Audacity by import->raw, data type: signed 16-bit PCM, little-endian,
-/// stereo.
+/// The generated samples are saved to the specified writer Option, if provided.
 #[allow(dead_code)]
-fn play_note(sample_rate: u32, stream_handle: rodio::OutputStreamHandle, save_wav: bool) {
+fn play_note<W: Write>(
+    sample_rate: u32,
+    stream_handle: rodio::OutputStreamHandle,
+    _wav_out: Option<&mut W>,
+) {
     // Create a stereo buffer one second long. (Length = Sample rate * 2 channels)
     let mut samples = vec![0; 2 * sample_rate as usize];
 
     // Create the music player. We don't use this channel in this example.
     let (s, _r) = unbounded();
-    let mut player = MusicPlayer::new(sample_rate, s);
+    let mut player = MusicPlayer::new(sample_rate, s, false);
 
     // Start the player and play a single note, leaving it sustained.
     player.setup();
@@ -140,14 +199,19 @@ fn play_note(sample_rate: u32, stream_handle: rodio::OutputStreamHandle, save_wa
 /// separate thread. Crossbeam channels are used to send the generated samples to the main thread.
 /// The message type is an enum of type CallbackMessage, and can incorporate either instructions
 /// for the main thread or encapsulate audio samples.
-fn play_music(sample_rate: u32, stream_handle: rodio::OutputStreamHandle, save_wav: bool) {
+fn play_music<W: Write + std::io::Seek>(
+    sample_rate: u32,
+    stream_handle: rodio::OutputStreamHandle,
+    wav_out: Option<&mut W>,
+    debug: bool,
+) {
     // Create a channel to receive the audio samples as they are generated by the timer callback.
     // The channel here is unbounded, but you could calculate the number of samples you expect to
     // receive and use a bounded channel. I am not sure of the performance differences.
     let (s, r) = unbounded();
 
     // Create and initialize the music player.
-    let mut player = MusicPlayer::new(sample_rate, s);
+    let mut player = MusicPlayer::new(sample_rate, s, debug);
     player.setup();
 
     // Wrap the player in an Arc<Mutex<>> so we can share it with the timer callback.
@@ -173,6 +237,25 @@ fn play_music(sample_rate: u32, stream_handle: rodio::OutputStreamHandle, save_w
                 .unwrap_or_else(|e| panic!("Error locking player: {:?}", e));
             player_lock.timer_callback();
         })
+    };
+
+    // If a writer was provided, create a Hound wav writer wrapped in Some, otherwise None.
+    let mut wav_writer = if let Some(w) = wav_out {
+        // Use our converted format, using the specified sample rate and 32-bit float samples.
+        let wav_writer = hound::WavWriter::new(
+            w,
+            hound::WavSpec {
+                channels: 2,
+                sample_rate,
+                bits_per_sample: 32,
+                sample_format: hound::SampleFormat::Float,
+            },
+        )
+        .expect("Couldn't create wav writer.");
+
+        Some(wav_writer)
+    } else {
+        None
     };
 
     // Start playing the rodio audio sink. This may not be strictly necessary as we never paused it.
@@ -202,11 +285,23 @@ fn play_music(sample_rate: u32, stream_handle: rodio::OutputStreamHandle, save_w
                     .map(|c| *c as f32 / i16::MAX as f32)
                     .collect();
 
+                // If we have a wav writer, write the samples to the wav file.
+                if let Some(wav_writer) = &mut wav_writer {
+                    for sample in &channel_samples {
+                        wav_writer.write_sample(*sample).unwrap();
+                    }
+                }
+
                 // Create a SamplesBuffer out of our received samples and append them to the sink
                 // to be played.
                 let buf = rodio::buffer::SamplesBuffer::new(2, sample_rate, channel_samples);
                 sink.append(buf);
             }
         }
+    }
+
+    // If we have a wav writer, finalize the wav file.
+    if let Some(wav_writer) = wav_writer {
+        wav_writer.finalize().expect("Couldn't finalize wav file.");
     }
 }
