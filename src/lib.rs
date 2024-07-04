@@ -36,9 +36,51 @@
 
 use std::sync::{Arc, Mutex};
 
-unsafe impl Send for Opl3Chip {}
+use thiserror::Error;
 
 mod bindings;
+
+unsafe impl Send for Opl3Chip {}
+
+const OPL_TIMER_1_REGISTER: u8 = 0x02;
+const OPL_TIMER_2_REGISTER: u8 = 0x03;
+const OPL_TIMER_CONTROL_REGISTER: u8 = 0x04;
+
+const OPL_IRQ_FLAG: u8 = 0b1000_0000;
+const OPL_TIMER_1_MASK: u8 = 0b0100_0000;
+const OPL_TIMER_2_MASK: u8 = 0b0010_0000;
+const OPL_TIMER_1_START: u8 = 0b0000_0001;
+const OPL_TIMER_2_START: u8 = 0b0000_0010;
+
+const OPL_TIMER_1_RATE: u32 = 80;
+const OPL_TIMER_2_RATE: u32 = 320;
+
+#[derive(Error, Debug)]
+/// The `OplError` enum represents errors that can occur when using the `opl3-rs` library.
+pub enum OplError {
+    #[error("Buffer slice provided was too small")]
+    /// The buffer slice provided was too small to contain the generated samples.
+    BufferUndersized,
+    #[error("Buffer slices must be equal in length")]
+    /// The buffer slices provided to generate_4ch_stream were not equal in length.
+    BufferMismatch,
+    #[error("Register number out of range")]
+    /// The specified register number is out of range.
+    RegisterOutOfRange,
+    #[error("Failed to lock mutex")]
+    /// Failed to lock the mutex for the OPL3 device.
+    MutexLockFailed,
+}
+
+#[derive(Debug)]
+/// The `Opl3RegisterFile` enum represents the two register files available on the OPL3 chip.
+/// If in OPL2 mode, only the primary register file is available.
+pub enum OplRegisterFile {
+    /// Select the OPL2 register file.
+    Primary,
+    /// Select the extended OPL3 register file.
+    Secondary,
+}
 
 /// The `Opl3DeviceStats` struct contains statistics about the OPL3 device.
 /// It can be retrieved via the `get_stats` function on `Opl3Device`.
@@ -55,14 +97,86 @@ pub struct Opl3DeviceStats {
     pub samples_generated: usize,
 }
 
+/// The `Opl3Device` maintains two internal timers.
+#[derive(Default, Debug)]
+struct OplTimer {
+    enabled: bool,
+    masked: bool,
+    rate: u32,
+    preset: u8,
+    counter: u8,
+    usec_accumulator: f64,
+    elapsed: bool,
+}
+
+impl OplTimer {
+    fn new(rate: u32) -> Self {
+        OplTimer {
+            enabled: false,
+            masked: false,
+            rate,
+            preset: 0,
+            counter: 0,
+            usec_accumulator: 0.0,
+            elapsed: false,
+        }
+    }
+
+    fn mask(&mut self, masked: bool) {
+        self.masked = masked;
+    }
+
+    fn is_elapsed(&self) -> bool {
+        if self.masked {
+            false
+        } else {
+            self.elapsed
+        }
+    }
+
+    fn enable(&mut self, state: bool) {
+        self.enabled = state;
+    }
+
+    #[allow(dead_code)]
+    fn reset(&mut self) {
+        self.counter = self.preset;
+        self.elapsed = false;
+    }
+
+    fn reset_elapsed(&mut self) {
+        self.elapsed = false;
+    }
+
+    fn tick(&mut self, usec: f64) {
+        self.usec_accumulator += usec;
+        while self.usec_accumulator >= self.rate as f64 {
+            self.usec_accumulator -= self.rate as f64;
+            self.count();
+        }
+    }
+
+    #[inline]
+    fn count(&mut self) {
+        if self.enabled {
+            if self.counter == 255 {
+                self.elapsed = true;
+                self.counter = self.preset;
+            } else {
+                self.counter += 1;
+            }
+        }
+    }
+}
+
 /// The `Opl3Device` struct provides convenience functions for fully implementing an OPL3 device on
 /// top of Nuked-OPL3.
 /// By keeping a copy of all registers written, we can implement a read_register function.
 pub struct Opl3Device {
-    addr_reg: u8,
-    status_reg: u8,
+    addr_reg: [u8; 2],
     sample_rate: u32,
-    registers: [u8; 256],
+    registers: [[u8; 256]; 2],
+    timers: [OplTimer; 2],
     stats: Opl3DeviceStats,
     inner_chip: Arc<Mutex<Opl3Chip>>,
 }
@@ -74,10 +188,13 @@ impl Opl3Device {
     /// tracking and a read_register function.
     pub fn new(sample_rate: u32) -> Self {
         Opl3Device {
-            addr_reg: 0,
-            status_reg: 0,
+            addr_reg: [0, 0],
             sample_rate,
-            registers: [0; 256],
+            registers: [[0; 256], [0; 256]],
+            timers: [
+                OplTimer::new(OPL_TIMER_1_RATE),
+                OplTimer::new(OPL_TIMER_2_RATE),
+            ],
             stats: Opl3DeviceStats::default(),
             inner_chip: Arc::new(Mutex::new(Opl3Chip::new(sample_rate))),
         }
@@ -88,6 +205,46 @@ impl Opl3Device {
         self.stats
     }
 
+    /// Update the `Opl3Device` instance. This function should be called periodically to update the
+    /// state of the OPL3 timers.
+    /// # Arguments
+    ///
+    /// * `usec` - The number of microseconds that have passed since the last call to `run`.
+    pub fn run(&mut self, usec: f64) {
+        self.timers[0].tick(usec);
+        self.timers[1].tick(usec);
+    }
+
+    /// Read a byte from the OPL3 device's Status register.
+    /// The Nuked-OPL3 library does not natively provide emulation of the OPL3 status register.
+    /// The status register contains bits that indicate the status of the OPL3's timers. To properly
+    /// emulate this timer state, it is necessary to call run() on the OPL3 device periodically.
+    pub fn read_status(&mut self) -> u8 {
+        self.stats.status_reads = self.stats.status_reads.saturating_add(1);
+
+        let mut status_reg = 0;
+
+        status_reg |= if self.timers[0].is_elapsed() {
+            OPL_TIMER_1_MASK
+        } else {
+            0
+        };
+
+        status_reg |= if self.timers[1].is_elapsed() {
+            OPL_TIMER_2_MASK
+        } else {
+            0
+        };
+
+        status_reg |= if self.timers[0].is_elapsed() || self.timers[1].is_elapsed() {
+            OPL_IRQ_FLAG
+        } else {
+            0
+        };
+
+        status_reg
+    }
+
     /// Write a byte to the OPL3 device's Address register.
     /// This function, along with write_data, is likely the primary interface for an emulator
     /// implementing an OPL device.
@@ -95,10 +252,14 @@ impl Opl3Device {
     /// # Arguments
     ///
     /// * `addr` - The register address to write to the OPL3 device, in the range 0..=255.
-    pub fn write_address(&mut self, addr: u8) {
-        if (addr as u16) < 256 {
-            self.status_reg = addr;
+    /// * `file` - The register file to write to. OPL3 devices have two register files, the Primary
+    ///            and Secondary files. OPL2 devices only have the Primary register file.
+    pub fn write_address(&mut self, addr: u8, file: OplRegisterFile) -> Result<(), OplError> {
+        match file {
+            OplRegisterFile::Primary => self.addr_reg[0] = addr,
+            OplRegisterFile::Secondary => self.addr_reg[1] = addr,
         }
+        Ok(())
     }
 
     /// Write a byte to the OPL3 device's Data register.
@@ -116,8 +277,20 @@ impl Opl3Device {
     ///                This is useful for controlling the library manually, but if you are
     ///                implementing an emulator the software controlling the OPL3 module will
     ///                likely write registers with appropriate timings.
-    pub fn write_data(&mut self, data: u8, buffered: bool) {
-        self.write_register(self.addr_reg as u16, data, buffered);
+    /// * `file` - The register file to write to. OPL3 devices have two register files, the Primary
+    ///            and Secondary files. OPL2 devices only have the Primary register file.
+    pub fn write_data(
+        &mut self,
+        data: u8,
+        file: OplRegisterFile,
+        buffered: bool,
+    ) -> Result<(), OplError> {
+        let addr = match file {
+            OplRegisterFile::Primary => self.addr_reg[0],
+            OplRegisterFile::Secondary => self.addr_reg[1],
+        };
+        self.write_register(addr, data, file, buffered);
+        Ok(())
     }
 
     /// Return the value of the given chip register from internal state.
@@ -127,12 +300,13 @@ impl Opl3Device {
     ///
     /// # Arguments
     ///
-    /// * `reg` - The internal register index to read.
-    pub fn read_register(&self, reg: u16) -> u8 {
-        if reg < 256 {
-            self.registers[reg as usize]
-        } else {
-            0
+    /// * `reg`  - The internal register index to read.
+    /// * `file` - The register file to write to. OPL3 devices have two register files, the Primary
+    ///            and Secondary files. OPL2 devices only have the Primary register file///
+    pub fn read_register(&self, reg: u8, file: OplRegisterFile) -> u8 {
+        match file {
+            OplRegisterFile::Primary => self.registers[0][reg as usize],
+            OplRegisterFile::Secondary => self.registers[1][reg as usize],
         }
     }
 
@@ -148,21 +322,56 @@ impl Opl3Device {
     ///                This is useful for controlling the library manually, but if you are
     ///                implementing an emulator the software controlling the OPL3 module will
     ///                likely write registers with appropriate timings.
-    pub fn write_register(&mut self, reg: u16, value: u8, buffered: bool) {
-        if reg < 256 {
-            self.stats.data_writes = self.stats.data_writes.saturating_add(1);
-
-            //println!("{:03X}:{:02X} ({})", reg, value, self.stats.data_writes);
-
-            self.registers[reg as usize] = value;
-            if buffered {
-                self.inner_chip
-                    .lock()
-                    .unwrap()
-                    .write_register_buffered(reg, value);
-            } else {
-                self.inner_chip.lock().unwrap().write_register(reg, value);
+    /// * `file` - The register file to write to. OPL3 devices have two register files, the Primary
+    ///            and Secondary files. OPL2 devices only have the Primary register file
+    pub fn write_register(&mut self, reg: u8, value: u8, file: OplRegisterFile, buffered: bool) {
+        let reg16 = match file {
+            OplRegisterFile::Primary => {
+                self.registers[0][reg as usize] = value;
+                reg as u16
             }
+            OplRegisterFile::Secondary => {
+                self.registers[1][reg as usize] = value;
+                reg as u16 | 0x100
+            }
+        };
+
+        // We need to intercept certain register addresses that Nuked-OPL3 doesn't emulate, namely
+        // the timer registers.
+        if let OplRegisterFile::Primary = file {
+            match reg {
+                OPL_TIMER_1_REGISTER => {
+                    self.timers[0].counter = value;
+                }
+                OPL_TIMER_2_REGISTER => {
+                    self.timers[1].counter = value;
+                }
+                OPL_TIMER_CONTROL_REGISTER => {
+                    if (value & OPL_IRQ_FLAG) != 0 {
+                        // Reset the timer and IRQ flags in the status register.
+                        // All other bits are ignored when this bit is set.
+                        self.timers[0].reset_elapsed();
+                        self.timers[1].reset_elapsed();
+                    } else {
+                        // Mask & enable the timers based on the timer start bits.
+                        self.timers[0].mask((value & OPL_TIMER_1_MASK) != 0);
+                        self.timers[1].mask((value & OPL_TIMER_2_MASK) != 0);
+                        self.timers[0].enable((value & OPL_TIMER_1_START) != 0);
+                        self.timers[1].enable((value & OPL_TIMER_2_START) != 0);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        self.stats.data_writes = self.stats.data_writes.saturating_add(1);
+        if buffered {
+            self.inner_chip
+                .lock()
+                .unwrap()
+                .write_register_buffered(reg16, value);
+        } else {
+            self.inner_chip.lock().unwrap().write_register(reg16, value);
         }
     }
 
@@ -174,13 +383,20 @@ impl Opl3Device {
     ///
     /// * `sample_rate` - An option that either contains the new sample rate to reinitialize with
     ///                   or None to keep the current sample rate.
-    pub fn reset(&mut self, sample_rate: Option<u32>) {
+    pub fn reset(&mut self, sample_rate: Option<u32>) -> Result<(), OplError> {
         let new_sample_rate = sample_rate.unwrap_or(self.sample_rate);
-        self.inner_chip.lock().unwrap().reset(new_sample_rate);
-        for reg in 0..256 {
-            self.write_register(reg, 0, true);
+        if let Ok(mut chip) = self.inner_chip.lock() {
+            chip.reset(new_sample_rate);
+        } else {
+            return Err(OplError::MutexLockFailed);
+        }
+        for file in 0..2 {
+            for reg in 0..256 {
+                self.registers[file][reg] = 0;
+            }
         }
         self.stats = Opl3DeviceStats::default();
+        Ok(())
     }
 
     /// Generate a 2 channel audio sample in interleaved i16 format.
@@ -190,8 +406,12 @@ impl Opl3Device {
     /// * `sample` - A mutable reference to a two-element slice that will receive the audio sample.
     ///              The first element will contain the left channel sample, and the second element
     ///              will contain the right channel sample.
-    pub fn generate(&mut self, sample: &mut [i16]) {
-        self.inner_chip.lock().unwrap().generate(sample);
+    pub fn generate(&mut self, sample: &mut [i16]) -> Result<(), OplError> {
+        if let Ok(mut chip) = self.inner_chip.lock() {
+            chip.generate(sample)
+        } else {
+            return Err(OplError::MutexLockFailed);
+        }
     }
 
     /// Generate a stream of 2 channel, interleaved audio samples in i16 format.
@@ -200,8 +420,8 @@ impl Opl3Device {
     ///
     /// * `buffer` - A mutable reference to a buffer slice that will be filled with stereo, i
     ///              interleaved audio samples.
-    pub fn generate_samples(&mut self, buffer: &mut [i16]) {
-        self.inner_chip.lock().unwrap().generate_stream(buffer);
+    pub fn generate_samples(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
+        self.inner_chip.lock().unwrap().generate_stream(buffer)
     }
 }
 
@@ -256,12 +476,11 @@ impl Opl3Chip {
 
     /// Generate audio samples.
     ///
-    /// Internally, this calls Opl3Generate4Ch and returns samples for the first 2 channels..
-    /// Therefore, the buffer provided must be 4 samples long.
+    /// Internally, this calls Opl3Generate4Ch and returns samples for the first 2 channels.
     ///
     /// # Arguments
     ///
-    /// * `buffer` - A mutable reference to a buffer that will receive the audio samples.
+    /// * `buffer` - A mutable reference to a buffer of 2 elements that will receive the audio samples.
     ///
     /// # Example
     ///
@@ -269,16 +488,17 @@ impl Opl3Chip {
     /// use opl3_rs::Opl3Chip;
     ///
     /// let mut chip = Opl3Chip::new(44100);
-    /// let mut buffer = [0i16; 4];
-    /// chip.generate(&mut buffer);
+    /// let mut buffer = [0i16; 2];
+    /// _ = chip.generate(&mut buffer);
     /// ```
-    pub fn generate(&mut self, buffer: &mut [i16]) {
-        if buffer.len() < 4 {
-            panic!("Buffer must be at least 4 samples long.");
+    pub fn generate(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
+        if buffer.len() < 2 {
+            return Err(OplError::BufferUndersized);
         }
         unsafe {
             bindings::Opl3Generate(&mut self.chip, buffer.as_mut_ptr());
         }
+        Ok(())
     }
 
     /// Generates resampled audio samples.
@@ -364,10 +584,13 @@ impl Opl3Chip {
     /// use opl3_rs::Opl3Chip;
     ///
     /// let mut chip = Opl3Chip::new(44100);
-    /// let mut buffer = [0i16; 4];
-    /// chip.generate_stream(&mut buffer);
+    /// let mut buffer = [0i16; 1024];
+    /// _ = chip.generate_stream(&mut buffer);
     /// ```
-    pub fn generate_stream(&mut self, buffer: &mut [i16]) {
+    pub fn generate_stream(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
+        if buffer.len() < 2 {
+            return Err(OplError::BufferUndersized);
+        }
         unsafe {
             bindings::Opl3GenerateStream(
                 &mut self.chip,
@@ -375,6 +598,7 @@ impl Opl3Chip {
                 buffer.len() as u32 / 2,
             );
         }
+        Ok(())
     }
 
     /// Generate 4 channel audio samples.
@@ -390,15 +614,16 @@ impl Opl3Chip {
     ///
     /// let mut chip = Opl3Chip::new(44100);
     /// let mut buffer = [0i16; 4];
-    /// chip.generate_4ch(&mut buffer);
+    /// _ = chip.generate_4ch(&mut buffer);
     /// ```
-    pub fn generate_4ch(&mut self, buffer: &mut [i16]) {
+    pub fn generate_4ch(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
         if buffer.len() < 4 {
-            panic!("Buffer must be at least 4 samples long.");
+            return Err(OplError::BufferUndersized);
         }
         unsafe {
             bindings::Opl3Generate4Ch(&mut self.chip, buffer.as_mut_ptr());
         }
+        Ok(())
     }
 
     /// Generate 4 channel resampled audio samples.
@@ -414,15 +639,16 @@ impl Opl3Chip {
     ///
     /// let mut chip = Opl3Chip::new(44100);
     /// let mut buffer = [0i16; 4];
-    /// chip.generate_4ch_resampled(&mut buffer);
+    /// _ = chip.generate_4ch_resampled(&mut buffer);
     /// ```
-    pub fn generate_4ch_resampled(&mut self, buffer: &mut [i16]) {
+    pub fn generate_4ch_resampled(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
         if buffer.len() < 4 {
-            panic!("Buffer must be at least 4 samples long.");
+            return Err(OplError::BufferUndersized);
         }
         unsafe {
             bindings::Opl3Generate4ChResampled(&mut self.chip, buffer.as_mut_ptr());
         }
+        Ok(())
     }
 
     /// Generates a stream of 4-channel audio samples, resampled to the configured sample rate.
@@ -447,14 +673,18 @@ impl Opl3Chip {
     /// let mut chip = Opl3Chip::new(44100);
     /// let mut buffer1 = [0i16; 1024];
     /// let mut buffer2 = [0i16; 1024];
-    /// chip.generate_4ch_stream(&mut buffer1, &mut buffer2);
+    /// _ = chip.generate_4ch_stream(&mut buffer1, &mut buffer2);
     /// ```
-    pub fn generate_4ch_stream(&mut self, buffer1: &mut [i16], buffer2: &mut [i16]) {
+    pub fn generate_4ch_stream(
+        &mut self,
+        buffer1: &mut [i16],
+        buffer2: &mut [i16],
+    ) -> Result<(), OplError> {
         if buffer1.len() != buffer2.len() {
-            panic!("Buffers must be the same length.");
+            return Err(OplError::BufferMismatch);
         }
         if buffer1.len() < 4 || buffer2.len() < 4 {
-            panic!("Buffers must be at least 4 samples long.");
+            return Err(OplError::BufferUndersized);
         }
         unsafe {
             bindings::Opl3Generate4ChStream(
@@ -464,6 +694,7 @@ impl Opl3Chip {
                 buffer1.len() as u32 / 2,
             );
         }
+        Ok(())
     }
 }
 

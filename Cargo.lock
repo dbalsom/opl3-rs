@@ -610,6 +610,7 @@ dependencies = [
  "bindgen",
  "cc",
  "heck",
+ "thiserror",
 ]
 
 [[package]]

@@ -23,7 +23,7 @@
 
 use crossbeam_channel::Sender;
 
-use opl3_rs::Opl3Device;
+use opl3_rs::{Opl3Device, OplRegisterFile};
 
 use crate::opl::*;
 use crate::opl_instruments::{OPL_INSTRUMENT_PIANO1, OplInstrument};
@@ -185,9 +185,10 @@ impl MusicPlayer {
 
     pub fn setup(&mut self) {
         self.tempo = 120;
-        self.opl3.reset(None);
+        _ = self.opl3.reset(None);
 
-        self.opl3.write_register(0x01, 0x20, true); // Set WSE=1
+        self.opl3
+            .write_register(0x01, 0x20, OplRegisterFile::Primary, true); // Set WSE=1
 
         set_instrument(&mut self.opl3, 0, &OPL_INSTRUMENT_PIANO1);
         set_block(&mut self.opl3, 0, 5);
@@ -209,7 +210,7 @@ impl MusicPlayer {
     }
 
     pub fn generate_direct(&mut self, samples: &mut [i16]) {
-        self.opl3.generate_samples(samples);
+        _ = self.opl3.generate_samples(samples);
     }
 
     pub fn timer_callback(&mut self) {
@@ -223,7 +224,7 @@ impl MusicPlayer {
                 return;
             }
             self.main_loop();
-            self.opl3.generate_samples(&mut self.sample_buf);
+            _ = self.opl3.generate_samples(&mut self.sample_buf);
 
             self.sender
                 .send(CallbackMessage::HaveSamples(self.sample_buf.clone()))

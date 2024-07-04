@@ -16,6 +16,7 @@ cc = "1.0"
 heck = "0.5.0"
 
 [dependencies]
+thiserror = "1.0"
 
 [workspace]
 members = [
