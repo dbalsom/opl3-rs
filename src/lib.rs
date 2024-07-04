@@ -179,6 +179,7 @@ pub struct Opl3Device {
     timers: [OplTimer; 2],
     stats: Opl3DeviceStats,
     inner_chip: Arc<Mutex<Opl3Chip>>,
+    samples_fpart: f64,
 }
 
 impl Opl3Device {
@@ -197,6 +198,7 @@ impl Opl3Device {
             ],
             stats: Opl3DeviceStats::default(),
             inner_chip: Arc::new(Mutex::new(Opl3Chip::new(sample_rate))),
+            samples_fpart: 0.0,
         }
     }
 
@@ -210,9 +212,19 @@ impl Opl3Device {
     /// # Arguments
     ///
     /// * `usec` - The number of microseconds that have passed since the last call to `run`.
-    pub fn run(&mut self, usec: f64) {
+    ///
+    /// # Returns
+    /// The number of samples corresponding to the number of microseconds passed.
+    pub fn run(&mut self, usec: f64) -> usize {
         self.timers[0].tick(usec);
         self.timers[1].tick(usec);
+
+        let samples_f = usec * 1_000_000.0 / self.sample_rate as f64 + self.samples_fpart;
+
+        let samples = samples_f as usize;
+        self.samples_fpart = samples_f - samples_f.floor();
+
+        samples
     }
 
     /// Read a byte from the OPL3 device's Status register.
