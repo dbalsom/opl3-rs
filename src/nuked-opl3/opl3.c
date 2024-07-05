@@ -841,9 +841,9 @@ static void OPL3_ChannelWriteA0(opl3_channel *channel, uint8_t data)
         printf("WARNING: fnum >> 6 is %d\n", channel->f_num >> 6);
     }
 
+    OPL3_EnvelopeUpdateKSL(channel->slotz[0]);
+    OPL3_EnvelopeUpdateKSL(channel->slotz[1]);
 
-    //OPL3_EnvelopeUpdateKSL(channel->slotz[0]);
-    //OPL3_EnvelopeUpdateKSL(channel->slotz[1]);
     if (channel->chip->newm && channel->chtype == ch_4op)
     {
         channel->pair->f_num = channel->f_num;
