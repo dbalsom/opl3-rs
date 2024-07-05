@@ -35,19 +35,24 @@ use rodio::cpal::traits::HostTrait;
 use rodio::DeviceTrait;
 use timer::Timer;
 
+use opl3_rs::{Opl3Device, OplRegisterFile};
+
 use crate::music_player::CallbackMessage;
 use crate::music_player::MusicPlayer;
 use crate::opl::*;
 use crate::opl_instruments::*;
+use crate::regs::REGS;
 
 mod music_player;
 mod opl;
 mod opl_instruments;
+mod regs;
 
 const TIMER_FREQ: i64 = 100; // We will set a timer callback at 100Hz
 
 #[derive(Debug, Clone)]
 struct Out {
+    x: Option<bool>,
     debug: Option<bool>,
     test_note: Option<bool>,
     output_wav: Option<PathBuf>,
@@ -55,6 +60,13 @@ struct Out {
 
 /// Set up bpaf argument parsing.
 fn opts() -> OptionParser<Out> {
+    let x = short('x')
+        .long("xdebug")
+        .help("Activate crash mode")
+        .switch()
+        .fallback(false)
+        .optional();
+
     let debug = short('d')
         .long("debug")
         .help("Activate debug mode")
@@ -76,6 +88,7 @@ fn opts() -> OptionParser<Out> {
         .optional();
 
     construct!(Out {
+        x,
         debug,
         test_note,
         output_wav
@@ -132,6 +145,12 @@ fn main() {
         wav_out = Some(BufWriter::new(file));
     }
 
+    if opts.x.is_some_and(|b| b) {
+        // Activate crash mode
+        reg_playback();
+        return;
+    }
+
     // Play the test note if option -t was specified, otherwise play music.
     if opts.test_note.is_some_and(|b| b) {
         play_note::<BufWriter<File>>(sample_rate, stream_handle, wav_out.as_mut());
@@ -142,6 +161,19 @@ fn main() {
             wav_out.as_mut(),
             opts.debug.unwrap_or(false),
         );
+    }
+}
+
+fn reg_playback() {
+    let mut device = Opl3Device::new(48000);
+
+    let mut buf: [i16; 1024 * 2] = [0; 1024 * 2];
+    for i in 0..1000 {
+        for regpair in REGS {
+            println!("Writing register: {:02X} = {:02X}", regpair[0], regpair[1]);
+            device.write_register(regpair[0], regpair[1], OplRegisterFile::Primary, true);
+        }
+        _ = device.generate_samples(&mut buf);
     }
 }
 

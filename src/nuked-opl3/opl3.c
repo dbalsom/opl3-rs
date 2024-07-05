@@ -836,14 +836,14 @@ static void OPL3_ChannelWriteA0(opl3_channel *channel, uint8_t data)
     channel->f_num = (channel->f_num & 0x300) | data;
     channel->ksv = (channel->block << 1)
                  | ((channel->f_num >> (0x09 - channel->chip->nts)) & 0x01);
-    OPL3_EnvelopeUpdateKSL(channel->slotz[0]);
-    OPL3_EnvelopeUpdateKSL(channel->slotz[1]);
+    //OPL3_EnvelopeUpdateKSL(channel->slotz[0]);
+    //OPL3_EnvelopeUpdateKSL(channel->slotz[1]);
     if (channel->chip->newm && channel->chtype == ch_4op)
     {
         channel->pair->f_num = channel->f_num;
         channel->pair->ksv = channel->ksv;
-        OPL3_EnvelopeUpdateKSL(channel->pair->slotz[0]);
-        OPL3_EnvelopeUpdateKSL(channel->pair->slotz[1]);
+        //OPL3_EnvelopeUpdateKSL(channel->pair->slotz[0]);
+        //OPL3_EnvelopeUpdateKSL(channel->pair->slotz[1]);
     }
 }
 
@@ -857,15 +857,15 @@ static void OPL3_ChannelWriteB0(opl3_channel *channel, uint8_t data)
     channel->block = (data >> 2) & 0x07;
     channel->ksv = (channel->block << 1)
                  | ((channel->f_num >> (0x09 - channel->chip->nts)) & 0x01);
-    OPL3_EnvelopeUpdateKSL(channel->slotz[0]);
-    OPL3_EnvelopeUpdateKSL(channel->slotz[1]);
+    //OPL3_EnvelopeUpdateKSL(channel->slotz[0]);
+    //OPL3_EnvelopeUpdateKSL(channel->slotz[1]);
     if (channel->chip->newm && channel->chtype == ch_4op)
     {
         channel->pair->f_num = channel->f_num;
         channel->pair->block = channel->block;
         channel->pair->ksv = channel->ksv;
-        OPL3_EnvelopeUpdateKSL(channel->pair->slotz[0]);
-        OPL3_EnvelopeUpdateKSL(channel->pair->slotz[1]);
+        //OPL3_EnvelopeUpdateKSL(channel->pair->slotz[0]);
+        //OPL3_EnvelopeUpdateKSL(channel->pair->slotz[1]);
     }
 }
 
@@ -1553,13 +1553,6 @@ void OPL3_GenerateStream(opl3_chip *chip, int16_t *sndptr, uint32_t numsamples)
     for(i = 0; i < numsamples; i++)
     {
         OPL3_GenerateResampled(chip, sndptr);
-
-        if (sndptr[0] < min) {
-            min = sndptr[0];
-        }
-        if (sndptr[0] > max) {
-            max = sndptr[0];
-        }
         sndptr += 2;
     }
 
