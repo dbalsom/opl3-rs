@@ -348,15 +348,19 @@ impl Opl3Device {
             }
         };
 
+        self.stats.data_writes = self.stats.data_writes.saturating_add(1);
+
         // We need to intercept certain register addresses that Nuked-OPL3 doesn't emulate, namely
         // the timer registers.
         if let OplRegisterFile::Primary = file {
             match reg {
                 OPL_TIMER_1_REGISTER => {
                     self.timers[0].counter = value;
+                    return;
                 }
                 OPL_TIMER_2_REGISTER => {
                     self.timers[1].counter = value;
+                    return;
                 }
                 OPL_TIMER_CONTROL_REGISTER => {
                     if (value & OPL_IRQ_FLAG) != 0 {
@@ -371,12 +375,12 @@ impl Opl3Device {
                         self.timers[0].enable((value & OPL_TIMER_1_START) != 0);
                         self.timers[1].enable((value & OPL_TIMER_2_START) != 0);
                     }
+                    return;
                 }
                 _ => {}
             }
         }
 
-        self.stats.data_writes = self.stats.data_writes.saturating_add(1);
         if buffered {
             self.inner_chip
                 .lock()
