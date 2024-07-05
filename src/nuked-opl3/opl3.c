@@ -1595,7 +1595,7 @@ void OPL3_SanityCheck(opl3_chip *chip) {
         printf("Channel %d slot 1 channel pointer value is %p\n", i, chip->channel[i].slotz[1]->channel);
     }
 
-    let raw_ptr = (uint8_t*)chip;
+    uint8_t* raw_ptr = (uint8_t*)chip;
     printf("chip bytes are: %02X %02X %02X %02X", raw_ptr[0], raw_ptr[1], raw_ptr[2], raw_ptr[3]);
 
 }
