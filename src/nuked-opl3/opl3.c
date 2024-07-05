@@ -375,7 +375,15 @@ enum envelope_gen_num
 
 static void OPL3_EnvelopeUpdateKSL(opl3_slot *slot)
 {
-    int16_t ksl = (kslrom[slot->channel->f_num >> 6u] << 2)
+    // kslrom is a table of 16 values, so the maximum index is 15
+    // fnum is a uint16.
+    size_t ksl_index = slot->channel->f_num >> 6u;
+
+    if (ksl_index > 15) {
+        printf("OPL3_EnvelopeUpdateKSL: ksl_index out of bounds: %zu\n", ksl_index);
+        ksl_index &= 0x0f;
+    }
+    int16_t ksl = (kslrom[ksl_index] << 2)
                - ((0x08 - slot->channel->block) << 5);
     if (ksl < 0)
     {
