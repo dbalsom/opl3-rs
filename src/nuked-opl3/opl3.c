@@ -377,7 +377,13 @@ static void OPL3_EnvelopeUpdateKSL(opl3_slot *slot)
 {
     if (!slot || !slot->channel)
     {
-        printf("OPL3_EnvelopeUpdateKSL: slot or channel is NULL\n");
+        if (!slot) {
+            printf("OPL3_EnvelopeUpdateKSL: slot or channel is NULL\n");
+        }
+        else {
+            printf("OPL3_EnvelopeUpdateKSL: slot->channel is NULL\n");
+        }
+
         return;
     }
 
@@ -1536,7 +1542,6 @@ void OPL3_Generate4ChStream(opl3_chip *chip, int16_t *sndptr1, int16_t *sndptr2,
 
 void OPL3_GenerateStream(opl3_chip *chip, int16_t *sndptr, uint32_t numsamples)
 {
-
     uint_fast32_t i;
 
     int16_t min = INT16_MAX;
