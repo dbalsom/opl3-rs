@@ -1404,6 +1404,8 @@ void OPL3_Reset(opl3_chip *chip, uint32_t samplerate)
         panpot_lut_build = 1;
     }
 #endif
+
+    OPL3_SanityCheck(chip);
 }
 
 void OPL3_WriteReg(opl3_chip *chip, uint16_t reg, uint8_t v)
