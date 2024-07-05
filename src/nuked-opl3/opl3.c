@@ -839,7 +839,7 @@ static void OPL3_ChannelWriteA0(opl3_channel *channel, uint8_t data)
 
     if (channel->f_num >> 6 > 15) {
         printf("WARNING: fnum >> 6 is %d\n", channel->f_num >> 6);
-        return
+        return;
     }
 
     if (channel->slotz[0]->channel == NULL) {
@@ -850,7 +850,7 @@ static void OPL3_ChannelWriteA0(opl3_channel *channel, uint8_t data)
 
     if (channel->slotz[0]->channel->f_num >> 6 > 15) {
         printf("WARNING: slot[0] fnum >> 6 is %d\n", channel->slotz[0]->channel->f_num >> 6);
-        return
+        return;
     }
 
     OPL3_EnvelopeUpdateKSL(channel->slotz[0]);
