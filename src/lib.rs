@@ -219,7 +219,7 @@ impl Opl3Device {
         self.timers[0].tick(usec);
         self.timers[1].tick(usec);
 
-        let samples_f = usec * 1_000_000.0 / self.sample_rate as f64 + self.samples_fpart;
+        let samples_f = (usec / 1_000_000.0 * self.sample_rate as f64) + self.samples_fpart;
 
         let samples = samples_f as usize;
         self.samples_fpart = samples_f - samples_f.floor();
