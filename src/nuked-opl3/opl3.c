@@ -1573,8 +1573,6 @@ void OPL3_GenerateStream(opl3_chip *chip, int16_t *sndptr, uint32_t numsamples)
 {
     uint_fast32_t i;
 
-    int16_t min = INT16_MAX;
-    int16_t max = 0;
     for(i = 0; i < numsamples; i++)
     {
         OPL3_GenerateResampled(chip, sndptr);
@@ -1586,6 +1584,7 @@ void OPL3_GenerateStream(opl3_chip *chip, int16_t *sndptr, uint32_t numsamples)
 
 void OPL3_SanityCheck(opl3_chip *chip) {
 
+    int i;
     // First, iterate through all channels and inspect the slot pointers.
     for (i = 0; i < 9; i++) {
         printf("Channel %d slot 0 pointer value is %p\n", i, &chip->channel[i].slotz[0]);
