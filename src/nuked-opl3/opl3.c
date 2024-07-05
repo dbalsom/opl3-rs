@@ -392,7 +392,11 @@ static void OPL3_EnvelopeUpdateKSL(opl3_slot *slot)
     size_t ksl_index = slot->channel->f_num >> 6u;
 
     if (ksl_index > 15) {
-        printf("OPL3_EnvelopeUpdateKSL: ksl_index out of bounds: %zu\n", ksl_index);
+        printf(
+            "OPL3_EnvelopeUpdateKSL: ksl_index out of bounds: %zu fnum was: %d\n",
+            ksl_index,
+            slot->channel->f_num
+            );
         ksl_index &= 0x0f;
     }
     int16_t ksl = (kslrom[ksl_index] << 2)
