@@ -1515,6 +1515,8 @@ void OPL3_WriteReg(opl3_chip *chip, uint16_t reg, uint8_t v)
         break;
 #endif
     }
+
+    OPL3_SanityCheck(chip);
 }
 
 void OPL3_WriteRegBuffered(opl3_chip *chip, uint16_t reg, uint8_t v)
@@ -1580,4 +1582,16 @@ void OPL3_GenerateStream(opl3_chip *chip, int16_t *sndptr, uint32_t numsamples)
     }
 
     //printf(">>> In OPL3_GenerateStream. Min: %d Max: %d\n", min, max);
+}
+
+void OPL3_SanityCheck(opl3_chip *chip) {
+
+    // First, iterate through all channels and inspect the slot pointers.
+    for (i = 0; i < 9; i++) {
+        printf("Channel %d slot 0 pointer value is %p\n", i, &chip->channel[i].slotz[0]);
+        printf("Channel %d slot 1 pointer value is %p\n", i, &chip->channel[i].slotz[1]);
+        printf("Channel %d slot 0 channel pointer value is %p\n", i, chip->channel[i].slotz[0]->channel);
+        printf("Channel %d slot 1 channel pointer value is %p\n", i, chip->channel[i].slotz[1]->channel);
+    }
+
 }

@@ -165,6 +165,8 @@ void OPL3_Generate4Ch(opl3_chip *chip, int16_t *buf4);
 void OPL3_Generate4ChResampled(opl3_chip *chip, int16_t *buf4);
 void OPL3_Generate4ChStream(opl3_chip *chip, int16_t *sndptr1, int16_t *sndptr2, uint32_t numsamples);
 
+void OPL3_SanityCheck(opl3_chip *chip);
+
 #ifdef __cplusplus
 }
 #endif
