@@ -836,6 +836,9 @@ static void OPL3_ChannelWriteA0(opl3_channel *channel, uint8_t data)
     channel->f_num = (channel->f_num & 0x300) | data;
     channel->ksv = (channel->block << 1)
                  | ((channel->f_num >> (0x09 - channel->chip->nts)) & 0x01);
+
+    printf("fnum >> 6 is %d\n", channel->f_num >> 6);
+
     //OPL3_EnvelopeUpdateKSL(channel->slotz[0]);
     //OPL3_EnvelopeUpdateKSL(channel->slotz[1]);
     if (channel->chip->newm && channel->chtype == ch_4op)
@@ -857,6 +860,9 @@ static void OPL3_ChannelWriteB0(opl3_channel *channel, uint8_t data)
     channel->block = (data >> 2) & 0x07;
     channel->ksv = (channel->block << 1)
                  | ((channel->f_num >> (0x09 - channel->chip->nts)) & 0x01);
+
+    printf("fnum >> 6 is %d\n", channel->f_num >> 6);
+
     //OPL3_EnvelopeUpdateKSL(channel->slotz[0]);
     //OPL3_EnvelopeUpdateKSL(channel->slotz[1]);
     if (channel->chip->newm && channel->chtype == ch_4op)
