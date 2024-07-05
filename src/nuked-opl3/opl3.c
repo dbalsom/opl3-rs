@@ -375,6 +375,12 @@ enum envelope_gen_num
 
 static void OPL3_EnvelopeUpdateKSL(opl3_slot *slot)
 {
+    if (!slot || !slot->channel)
+    {
+        printf("OPL3_EnvelopeUpdateKSL: slot or channel is NULL\n");
+        return;
+    }
+
     // kslrom is a table of 16 values, so the maximum index is 15
     // fnum is a uint16.
     size_t ksl_index = slot->channel->f_num >> 6u;
