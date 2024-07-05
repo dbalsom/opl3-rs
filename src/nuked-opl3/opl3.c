@@ -393,7 +393,7 @@ static void OPL3_EnvelopeUpdateKSL(opl3_slot *slot)
 
     if (ksl_index > 15) {
         printf(
-            "OPL3_EnvelopeUpdateKSL: ksl_index out of bounds: %zu fnum was: %d\n",
+            "OPL3_EnvelopeUpdateKSL: ksl_index out of bounds: %zu fnum was: %04X\n",
             ksl_index,
             slot->channel->f_num
             );
