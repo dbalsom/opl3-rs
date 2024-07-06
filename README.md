@@ -30,6 +30,8 @@ This example uses the rodio library for audio playback and crossbeam channels fo
 opl3-rs was primarily built for use with the [MartyPC PC emulator](https://github.com/dbalsom/martypc). It is used to
 implement an AdLib Music Card device.
 
+https://github.com/dbalsom/opl3-rs/assets/7229541/d78d4e90-71ed-4841-a963-9b09f25974c1
+
 # Credits
 
 [Nuked-OPL3](https://github.com/nukeykt/Nuked-OPL3) is (C) 2013-2020 Nuke.YKT and licensed under LGPL 2.1
