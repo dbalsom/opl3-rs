@@ -456,6 +456,16 @@ pub struct Opl3Chip {
     chip: *mut bindings::Opl3Chip,
 }
 
+impl Drop for Opl3Chip {
+    /// Drop the Opl3Chip instance by deallocating the memory used by the Nuked-OPL3 instance.
+    fn drop(&mut self) {
+        unsafe {
+            let layout = std::alloc::Layout::new::<bindings::Opl3Chip>();
+            std::alloc::dealloc(self.chip as *mut u8, layout);
+        }
+    }
+}
+
 impl Opl3Chip {
     /// Creates a new OPL3 chip instance. The chip is initialized with the given sample rate.
     /// The internal chip device is Pinned to ensure that it is not moved in memory. The Nuked-OPL3
