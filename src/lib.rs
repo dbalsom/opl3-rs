@@ -32,9 +32,6 @@
 *          YMF262 and VRC VII decaps and die shots.
 */
 
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-
 use thiserror::Error;
 
 mod bindings;
@@ -179,7 +176,7 @@ pub struct Opl3Device {
     registers: [[u8; 256]; 2],
     timers: [OplTimer; 2],
     stats: Opl3DeviceStats,
-    inner_chip: Arc<Mutex<Opl3Chip>>,
+    inner_chip: Opl3Chip,
     samples_fpart: f64,
     usec_accumulator: f64,
 }
@@ -199,7 +196,7 @@ impl Opl3Device {
                 OplTimer::new(OPL_TIMER_2_RATE),
             ],
             stats: Opl3DeviceStats::default(),
-            inner_chip: Arc::new(Mutex::new(Opl3Chip::new(sample_rate))),
+            inner_chip: Opl3Chip::new(sample_rate),
             samples_fpart: 0.0,
             usec_accumulator: 0.0,
         }
@@ -394,12 +391,9 @@ impl Opl3Device {
 
         self.stats.data_writes = self.stats.data_writes.saturating_add(1);
         if buffered {
-            self.inner_chip
-                .lock()
-                .unwrap()
-                .write_register_buffered(reg16, value);
+            self.inner_chip.write_register_buffered(reg16, value);
         } else {
-            self.inner_chip.lock().unwrap().write_register(reg16, value);
+            self.inner_chip.write_register(reg16, value);
         }
     }
 
@@ -417,11 +411,7 @@ impl Opl3Device {
     /// A Result containing either `()` on success or an `OplError` on failure.
     pub fn reset(&mut self, sample_rate: Option<u32>) -> Result<(), OplError> {
         let new_sample_rate = sample_rate.unwrap_or(self.sample_rate);
-        if let Ok(mut chip) = self.inner_chip.lock() {
-            chip.reset(new_sample_rate);
-        } else {
-            return Err(OplError::MutexLockFailed);
-        }
+        self.inner_chip.reset(new_sample_rate);
         for file in 0..2 {
             for reg in 0..256 {
                 self.registers[file][reg] = 0;
@@ -443,11 +433,7 @@ impl Opl3Device {
     ///
     /// A Result containing either `()` on success or an `OplError` on failure.
     pub fn generate(&mut self, sample: &mut [i16]) -> Result<(), OplError> {
-        if let Ok(mut chip) = self.inner_chip.lock() {
-            chip.generate(sample)
-        } else {
-            return Err(OplError::MutexLockFailed);
-        }
+        self.inner_chip.generate(sample)
     }
 
     /// Generate a stream of 2 channel, interleaved audio samples in i16 format.
@@ -461,13 +447,13 @@ impl Opl3Device {
     ///
     /// A Result containing either `()` on success or an `OplError` on failure.
     pub fn generate_samples(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
-        self.inner_chip.lock().unwrap().generate_stream(buffer)
+        self.inner_chip.generate_stream(buffer)
     }
 }
 
 /// The `Opl3Chip` struct provides a safe interface for interacting with the Nuked-OPL3 library.
 pub struct Opl3Chip {
-    chip: Pin<Box<bindings::Opl3Chip>>,
+    chip: *mut bindings::Opl3Chip,
 }
 
 impl Opl3Chip {
@@ -492,11 +478,10 @@ impl Opl3Chip {
     /// ```
     pub fn new(sample_rate: u32) -> Self {
         unsafe {
-            let mut chip: bindings::Opl3Chip = std::mem::zeroed();
-            bindings::Opl3Reset(&mut chip, sample_rate);
-            Opl3Chip {
-                chip: Box::pin(chip),
-            }
+            let layout = std::alloc::Layout::new::<bindings::Opl3Chip>();
+            let chip = std::alloc::alloc(layout) as *mut bindings::Opl3Chip;
+            bindings::Opl3Reset(chip, sample_rate);
+            Opl3Chip { chip }
         }
     }
 
