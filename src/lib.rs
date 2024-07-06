@@ -30,10 +30,9 @@
 *          OPL2 ROMs.
 *      siliconpr0n.org(John McMaster, digshadow):
 *          YMF262 and VRC VII decaps and die shots.
-*
-* version: 1.8
 */
 
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use thiserror::Error;
@@ -42,6 +41,7 @@ mod bindings;
 
 unsafe impl Send for Opl3Chip {}
 
+// OPL3 register addresses for registers not handled by Nuked-OPL3 directly.
 const OPL_TIMER_1_REGISTER: u8 = 0x02;
 const OPL_TIMER_2_REGISTER: u8 = 0x03;
 const OPL_TIMER_CONTROL_REGISTER: u8 = 0x04;
@@ -52,8 +52,9 @@ const OPL_TIMER_2_MASK: u8 = 0b0010_0000;
 const OPL_TIMER_1_START: u8 = 0b0000_0001;
 const OPL_TIMER_2_START: u8 = 0b0000_0010;
 
-const OPL_TIMER_1_RATE: u32 = 80;
-const OPL_TIMER_2_RATE: u32 = 320;
+const OPL_TICK_RATE: f64 = 80.0; // Perform a timer tick every 80us.
+const OPL_TIMER_1_RATE: u32 = 80; // Timer 1 tick rate is every 80us.
+const OPL_TIMER_2_RATE: u32 = 320; // Timer 2 tick rate is every 320us.
 
 #[derive(Error, Debug)]
 /// The `OplError` enum represents errors that can occur when using the `opl3-rs` library.
@@ -180,6 +181,7 @@ pub struct Opl3Device {
     stats: Opl3DeviceStats,
     inner_chip: Arc<Mutex<Opl3Chip>>,
     samples_fpart: f64,
+    usec_accumulator: f64,
 }
 
 impl Opl3Device {
@@ -199,10 +201,14 @@ impl Opl3Device {
             stats: Opl3DeviceStats::default(),
             inner_chip: Arc::new(Mutex::new(Opl3Chip::new(sample_rate))),
             samples_fpart: 0.0,
+            usec_accumulator: 0.0,
         }
     }
 
     /// Retrieve the statistics for the OPL3 device in the form of an `Opl3DeviceStats` struct.
+    ///
+    /// # Returns
+    /// An `Opl3DeviceStats` struct containing the statistics for the OPL3 device.
     pub fn stats(&self) -> Opl3DeviceStats {
         self.stats
     }
@@ -214,10 +220,16 @@ impl Opl3Device {
     /// * `usec` - The number of microseconds that have passed since the last call to `run`.
     ///
     /// # Returns
-    /// The number of samples corresponding to the number of microseconds passed.
+    /// The number of samples that correspond to the specified microseconds that elapsed.
+    /// The Opl3Device maintains a fractional accumulator, so you can use this returned value to
+    /// determine how many samples to generate.
     pub fn run(&mut self, usec: f64) -> usize {
-        self.timers[0].tick(usec);
-        self.timers[1].tick(usec);
+        self.usec_accumulator += usec;
+        while self.usec_accumulator >= OPL_TICK_RATE {
+            self.usec_accumulator -= OPL_TICK_RATE;
+            self.timers[0].tick(OPL_TICK_RATE);
+            self.timers[1].tick(OPL_TICK_RATE);
+        }
 
         let samples_f = (usec / 1_000_000.0 * self.sample_rate as f64) + self.samples_fpart;
 
@@ -314,7 +326,11 @@ impl Opl3Device {
     ///
     /// * `reg`  - The internal register index to read.
     /// * `file` - The register file to write to. OPL3 devices have two register files, the Primary
-    ///            and Secondary files. OPL2 devices only have the Primary register file///
+    ///            and Secondary files. OPL2 devices only have the Primary register file
+    ///
+    /// # Returns
+    ///
+    /// The u8 value of the requested register.
     pub fn read_register(&self, reg: u8, file: OplRegisterFile) -> u8 {
         match file {
             OplRegisterFile::Primary => self.registers[0][reg as usize],
@@ -395,6 +411,10 @@ impl Opl3Device {
     ///
     /// * `sample_rate` - An option that either contains the new sample rate to reinitialize with
     ///                   or None to keep the current sample rate.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either `()` on success or an `OplError` on failure.
     pub fn reset(&mut self, sample_rate: Option<u32>) -> Result<(), OplError> {
         let new_sample_rate = sample_rate.unwrap_or(self.sample_rate);
         if let Ok(mut chip) = self.inner_chip.lock() {
@@ -418,6 +438,10 @@ impl Opl3Device {
     /// * `sample` - A mutable reference to a two-element slice that will receive the audio sample.
     ///              The first element will contain the left channel sample, and the second element
     ///              will contain the right channel sample.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either `()` on success or an `OplError` on failure.
     pub fn generate(&mut self, sample: &mut [i16]) -> Result<(), OplError> {
         if let Ok(mut chip) = self.inner_chip.lock() {
             chip.generate(sample)
@@ -432,6 +456,10 @@ impl Opl3Device {
     ///
     /// * `buffer` - A mutable reference to a buffer slice that will be filled with stereo, i
     ///              interleaved audio samples.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either `()` on success or an `OplError` on failure.
     pub fn generate_samples(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
         self.inner_chip.lock().unwrap().generate_stream(buffer)
     }
@@ -439,15 +467,21 @@ impl Opl3Device {
 
 /// The `Opl3Chip` struct provides a safe interface for interacting with the Nuked-OPL3 library.
 pub struct Opl3Chip {
-    chip: bindings::Opl3Chip,
+    chip: Pin<Box<bindings::Opl3Chip>>,
 }
 
 impl Opl3Chip {
-    /// Creates a new OPL3 chip instance.
+    /// Creates a new OPL3 chip instance. The chip is initialized with the given sample rate.
+    /// The internal chip device is Pinned to ensure that it is not moved in memory. The Nuked-OPL3
+    /// instance contains many self-referencing pointers, which would be invalidated if moved.
     ///
     /// # Arguments
     ///
     /// * `sample_rate` - The sample rate to initialize the OPL3 chip with.
+    ///
+    /// # Returns
+    ///
+    /// The new Opl3Chip instance.
     ///
     /// # Example
     ///
@@ -460,7 +494,9 @@ impl Opl3Chip {
         unsafe {
             let mut chip: bindings::Opl3Chip = std::mem::zeroed();
             bindings::Opl3Reset(&mut chip, sample_rate);
-            Opl3Chip { chip }
+            Opl3Chip {
+                chip: Box::pin(chip),
+            }
         }
     }
 
@@ -482,17 +518,21 @@ impl Opl3Chip {
     /// ```
     pub fn reset(&mut self, sample_rate: u32) {
         unsafe {
-            bindings::Opl3Reset(&mut self.chip, sample_rate);
+            bindings::Opl3Reset(&mut *self.chip, sample_rate);
         }
     }
 
-    /// Generate audio samples.
+    /// Generate an audio sample.
     ///
     /// Internally, this calls Opl3Generate4Ch and returns samples for the first 2 channels.
     ///
     /// # Arguments
     ///
-    /// * `buffer` - A mutable reference to a buffer of 2 elements that will receive the audio samples.
+    /// * `sample` - A mutable slice of 2 elements that will receive the sample.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either `()` on success or an `OplError` on failure.
     ///
     /// # Example
     ///
@@ -503,21 +543,25 @@ impl Opl3Chip {
     /// let mut buffer = [0i16; 2];
     /// _ = chip.generate(&mut buffer);
     /// ```
-    pub fn generate(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
-        if buffer.len() < 2 {
+    pub fn generate(&mut self, sample: &mut [i16]) -> Result<(), OplError> {
+        if sample.len() < 2 {
             return Err(OplError::BufferUndersized);
         }
         unsafe {
-            bindings::Opl3Generate(&mut self.chip, buffer.as_mut_ptr());
+            bindings::Opl3Generate(&mut *self.chip, sample.as_mut_ptr());
         }
         Ok(())
     }
 
-    /// Generates resampled audio samples.
+    /// Generate a resampled audio sample.
     ///
     /// # Arguments
     ///
-    /// * `buffer` - A mutable reference to a buffer that will be filled with resampled audio samples.
+    /// * `sample` - A mutable slice of 2 elements that will receive the sample.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either `()` on success or an `OplError` on failure.
     ///
     /// # Example
     ///
@@ -525,16 +569,17 @@ impl Opl3Chip {
     /// use opl3_rs::Opl3Chip;
     ///
     /// let mut chip = Opl3Chip::new(44100);
-    /// let mut buffer = [0i16; 4];
-    /// chip.generate_resampled(&mut buffer);
+    /// let mut buffer = [0i16; 2];
+    /// _ = chip.generate_resampled(&mut buffer);
     /// ```
-    pub fn generate_resampled(&mut self, buffer: &mut [i16]) {
-        if buffer.len() < 4 {
-            panic!("Buffer must be at least 4 samples long.");
+    pub fn generate_resampled(&mut self, sample: &mut [i16]) -> Result<(), OplError> {
+        if sample.len() < 2 {
+            return Err(OplError::BufferUndersized);
         }
         unsafe {
-            bindings::Opl3GenerateResampled(&mut self.chip, buffer.as_mut_ptr());
+            bindings::Opl3GenerateResampled(&mut *self.chip, sample.as_mut_ptr());
         }
+        Ok(())
     }
 
     /// Writes a value to an OPL register.
@@ -554,7 +599,7 @@ impl Opl3Chip {
     /// ```
     pub fn write_register(&mut self, reg: u16, value: u8) {
         unsafe {
-            bindings::Opl3WriteReg(&mut self.chip, reg, value);
+            bindings::Opl3WriteReg(&mut *self.chip, reg, value);
         }
     }
 
@@ -578,17 +623,22 @@ impl Opl3Chip {
     /// ```
     pub fn write_register_buffered(&mut self, reg: u16, value: u8) {
         unsafe {
-            bindings::Opl3WriteRegBuffered(&mut self.chip, reg, value);
+            bindings::Opl3WriteRegBuffered(&mut *self.chip, reg, value);
         }
     }
 
     /// Generates a stream of resampled audio samples.
     ///
-    /// The number of samples generated is determined by the size of the buffer.
+    /// The number of samples generated is determined by the size of the buffer provided.
     ///
     /// # Arguments
     ///
-    /// * `buffer` - A mutable reference to a buffer that will be filled with resampled audio samples.
+    /// * `buffer` - A mutable reference to a slice of i16 that will be filled with resampled audio
+    ///              samples.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either `()` on success or an `OplError` on failure.
     ///
     /// # Example
     ///
@@ -596,7 +646,7 @@ impl Opl3Chip {
     /// use opl3_rs::Opl3Chip;
     ///
     /// let mut chip = Opl3Chip::new(44100);
-    /// let mut buffer = [0i16; 1024];
+    /// let mut buffer = [0i16; 1024 * 2];
     /// _ = chip.generate_stream(&mut buffer);
     /// ```
     pub fn generate_stream(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
@@ -605,7 +655,7 @@ impl Opl3Chip {
         }
         unsafe {
             bindings::Opl3GenerateStream(
-                &mut self.chip,
+                &mut *self.chip,
                 buffer.as_mut_ptr(),
                 buffer.len() as u32 / 2,
             );
@@ -613,11 +663,15 @@ impl Opl3Chip {
         Ok(())
     }
 
-    /// Generate 4 channel audio samples.
+    /// Generate a 4 channel audio sample.
     ///
     /// # Arguments
     ///
-    /// * `buffer` - A mutable reference to a buffer that will receive the audio samples.
+    /// * `sample` - A mutable, 4-element slice of i16 that will receive the sample.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either `()` on success or an `OplError` on failure.
     ///
     /// # Example
     ///
@@ -628,21 +682,25 @@ impl Opl3Chip {
     /// let mut buffer = [0i16; 4];
     /// _ = chip.generate_4ch(&mut buffer);
     /// ```
-    pub fn generate_4ch(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
-        if buffer.len() < 4 {
+    pub fn generate_4ch(&mut self, sample: &mut [i16]) -> Result<(), OplError> {
+        if sample.len() < 4 {
             return Err(OplError::BufferUndersized);
         }
         unsafe {
-            bindings::Opl3Generate4Ch(&mut self.chip, buffer.as_mut_ptr());
+            bindings::Opl3Generate4Ch(&mut *self.chip, sample.as_mut_ptr());
         }
         Ok(())
     }
 
-    /// Generate 4 channel resampled audio samples.
+    /// Generate a 4-channel resampled audio sample.
     ///
     /// # Arguments
     ///
-    /// * `buffer` - A mutable reference to a buffer that will receive the resampled audio samples.
+    /// * `sample` - A mutable, 4-element slice of i16 that will receive the sample.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either `()` on success or an `OplError` on failure.
     ///
     /// # Example
     ///
@@ -653,12 +711,12 @@ impl Opl3Chip {
     /// let mut buffer = [0i16; 4];
     /// _ = chip.generate_4ch_resampled(&mut buffer);
     /// ```
-    pub fn generate_4ch_resampled(&mut self, buffer: &mut [i16]) -> Result<(), OplError> {
-        if buffer.len() < 4 {
+    pub fn generate_4ch_resampled(&mut self, sample: &mut [i16]) -> Result<(), OplError> {
+        if sample.len() < 4 {
             return Err(OplError::BufferUndersized);
         }
         unsafe {
-            bindings::Opl3Generate4ChResampled(&mut self.chip, buffer.as_mut_ptr());
+            bindings::Opl3Generate4ChResampled(&mut *self.chip, sample.as_mut_ptr());
         }
         Ok(())
     }
@@ -677,14 +735,19 @@ impl Opl3Chip {
     /// * `buffer2` - A mutable reference to a slice that will be filled with audio samples for the
     ///               channels 2 and 3.
     ///               The length of buffer1 should equal the length of buffer2.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either `()` on success or an `OplError` on failure.
+    ///
     /// # Example
     ///
     /// ```
     /// use opl3_rs::Opl3Chip;
     ///
     /// let mut chip = Opl3Chip::new(44100);
-    /// let mut buffer1 = [0i16; 1024];
-    /// let mut buffer2 = [0i16; 1024];
+    /// let mut buffer1 = [0i16; 1024 * 2];
+    /// let mut buffer2 = [0i16; 1024 * 2];
     /// _ = chip.generate_4ch_stream(&mut buffer1, &mut buffer2);
     /// ```
     pub fn generate_4ch_stream(
@@ -700,7 +763,7 @@ impl Opl3Chip {
         }
         unsafe {
             bindings::Opl3Generate4ChStream(
-                &mut self.chip,
+                &mut *self.chip,
                 buffer1.as_mut_ptr(),
                 buffer2.as_mut_ptr(),
                 buffer1.len() as u32 / 2,

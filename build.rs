@@ -33,6 +33,7 @@ fn main() {
     let bindings_result = bindgen::Builder::default()
         .header(header_path)
         .allowlist_function("OPL3.*")
+        .no_copy("OPL3.*")
         .parse_callbacks(Box::new(RenameCallbacks))
         .generate();
 
