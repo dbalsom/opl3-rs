@@ -1,13 +1,32 @@
-//! Original code by Maarten Janssen (maarten@cheerful.nl) 2016-04-13
-//! From: https://github.com/DhrBaksteen/ArduinoOPL2
-//! Hacked for a OPL2LPT test program by Peter De Wachter (pdewacht@gmail.com).
+//! OPL helper functions and definitions. These functions comprise tasks such as setting notes,
+//! instruments, and frequency blocks.
+//!
+//! Original code (C) Maarten Janssen (maarten@cheerful.nl) 2016-04-13
+//! https://github.com/DhrBaksteen/ArduinoOPL2
+//! Hacked for a OPL2LPT test program Peter De Wachter (pdewacht@gmail.com).
+//! https://github.com/pdewacht/adlipt
 //! Rewritten in Rust by Daniel Balsom for opl3-rs
+//!
+//! Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+//! and associated documentation files (the “Software”), to deal in the Software without
+//! restriction, including without limitation the rights to use, copy, modify, merge, publish,
+//! distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+//! Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or
+// substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+// BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
 
 #![allow(dead_code)]
 
 use std::cmp;
 
-use opl3_rs::Opl3Device;
+use opl3_rs::{Opl3Device, OplRegisterFile};
 
 pub const NOTE_C: u8 = 0;
 pub const NOTE_CS: u8 = 1;
@@ -53,24 +72,37 @@ pub fn set_instrument(opl3: &mut Opl3Device, channel: usize, instrument: &[u8; 1
     set_waveform_select(opl3, true);
     for (i, byte) in instrument.iter().skip(1).enumerate() {
         opl3.write_register(
-            OPL_INSTRUMENT_BASE_REGS[i % 6] + get_register_offset(channel, (i > 5) as usize),
+            (OPL_INSTRUMENT_BASE_REGS[i % 6] + get_register_offset(channel, (i > 5) as usize))
+                as u8,
             *byte,
+            OplRegisterFile::Primary,
+            true,
         );
     }
 }
 
 pub fn set_waveform_select(opl3: &mut Opl3Device, enable: bool) {
     if enable {
-        opl3.write_register(0x01, opl3.read_register(0x01) | 0x20);
+        opl3.write_register(
+            0x01,
+            opl3.read_register(0x01, OplRegisterFile::Primary) | 0x20,
+            OplRegisterFile::Primary,
+            true,
+        );
     } else {
-        opl3.write_register(0x01, opl3.read_register(0x01) & 0xDF);
+        opl3.write_register(
+            0x01,
+            opl3.read_register(0x01, OplRegisterFile::Primary) & 0xDF,
+            OplRegisterFile::Primary,
+            true,
+        );
     }
 }
 
 /// Return the frequency block of the given channel.
 pub fn get_block(opl3: &mut Opl3Device, channel: u8) -> u8 {
-    let offset = cmp::max(0x00, cmp::min(channel as u16, 0x08));
-    return (opl3.read_register(0xB0 + offset) & 0x1C) >> 2;
+    let offset = cmp::max(0x00, cmp::min(channel, 0x08));
+    return (opl3.read_register(0xB0 + offset, OplRegisterFile::Primary) & 0x1C) >> 2;
 }
 
 /// Set frequency block for the given channel.
@@ -84,27 +116,29 @@ pub fn get_block(opl3: &mut Opl3Device, channel: u8) -> u8 {
 /// 6 - 3.034 Hz, Range: 3.034 Hz -> 3104.215 Hz
 /// 7 - 6.069 Hz, Range: 6.068 Hz -> 6208.431 Hz
 pub fn set_block(opl3: &mut Opl3Device, channel: u8, octave: u8) {
-    let reg: u16 = 0xB0 + cmp::max(0x00, cmp::min(channel as u16, 0x08));
+    let reg = 0xB0 + cmp::max(0x00, cmp::min(channel, 0x08));
     opl3.write_register(
         reg,
-        (opl3.read_register(reg) & 0xE3) | ((octave & 0x07) << 2),
+        (opl3.read_register(reg, OplRegisterFile::Primary) & 0xE3) | ((octave & 0x07) << 2),
+        OplRegisterFile::Primary,
+        true,
     );
 }
 
 /// Return whether the voice for the given channel is currently on.
 pub fn get_key_on(opl3: &mut Opl3Device, channel: u8) -> bool {
-    let offset: u16 = cmp::max(0x00, cmp::min(channel as u16, 0x08));
-    return (opl3.read_register(0xB0 + offset) & 0x20) != 0;
+    let offset = cmp::max(0x00, cmp::min(channel, 0x08));
+    return (opl3.read_register(0xB0 + offset, OplRegisterFile::Primary) & 0x20) != 0;
 }
 
 /// Enable the voice for the given channel.
 pub fn set_key_on(opl3: &mut Opl3Device, channel: u8, key_on: bool) {
-    let reg: u16 = 0xB0 + cmp::max(0x00, cmp::min(channel as u16, 0x08));
-    let old_reg = opl3.read_register(reg);
+    let reg = 0xB0 + cmp::max(0x00, cmp::min(channel, 0x08));
+    let old_reg = opl3.read_register(reg, OplRegisterFile::Primary);
     if key_on {
-        opl3.write_register(reg, old_reg | 0x20);
+        opl3.write_register(reg, old_reg | 0x20, OplRegisterFile::Primary, true);
     } else {
-        opl3.write_register(reg, old_reg & 0xDF);
+        opl3.write_register(reg, old_reg & 0xDF, OplRegisterFile::Primary, true);
     }
 }
 
@@ -129,19 +163,27 @@ pub fn get_note_frequency(opl3: &mut Opl3Device, channel: u8, octave: u8, note: 
 
 /// Returns the F-number of the given channel.
 pub fn get_frequency(opl3: &mut Opl3Device, channel: u8) -> u16 {
-    let offset: u16 = cmp::max(0x00, cmp::min(channel as u16, 0x08));
-    return (((opl3.read_register(0xB0 + offset) & 0x03) as u16) << 8)
-        | opl3.read_register(0xA0 + offset) as u16;
+    let offset = cmp::max(0x00, cmp::min(channel, 0x08));
+    return (((opl3.read_register(0xB0 + offset, OplRegisterFile::Primary) & 0x03) as u16) << 8)
+        | opl3.read_register(0xA0 + offset, OplRegisterFile::Primary) as u16;
 }
 
 /// Set the F-number of the given channel.
 /// Returns the register number that was written to.
 pub fn set_frequency(opl3: &mut Opl3Device, channel: u8, frequency: u16) -> u16 {
-    let reg = 0xA0 + cmp::max(0x00, cmp::min(channel as u16, 0x08));
-    opl3.write_register(reg, (frequency & 0xFF) as u8);
+    let reg = 0xA0 + cmp::max(0x00, cmp::min(channel, 0x08));
+    opl3.write_register(
+        reg,
+        (frequency & 0xFF) as u8,
+        OplRegisterFile::Primary,
+        true,
+    );
     opl3.write_register(
         reg + 0x10,
-        (opl3.read_register(reg + 0x10) & 0xFC) | ((frequency & 0x0300) >> 8) as u8,
+        (opl3.read_register(reg + 0x10, OplRegisterFile::Primary) & 0xFC)
+            | ((frequency & 0x0300) >> 8) as u8,
+        OplRegisterFile::Primary,
+        true,
     );
-    return reg;
+    return reg as u16;
 }

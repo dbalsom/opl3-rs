@@ -31,6 +31,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", lib_path);
 
     let bindings_result = bindgen::Builder::default()
+        .no_copy(".*")
         .header(header_path)
         .allowlist_function("OPL3.*")
         .parse_callbacks(Box::new(RenameCallbacks))

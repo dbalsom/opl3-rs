@@ -1,6 +1,7 @@
 /target
 *.iml
 .idea
+*.wav
 
 # Added by cargo
 #

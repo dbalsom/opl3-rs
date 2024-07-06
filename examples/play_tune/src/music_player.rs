@@ -1,15 +1,29 @@
-//! This is a example program that plays a simple, 3-channel tune via opl3-rs and the `rodio` audio
-//! library.
+//! Music player interface for play_tune example.
 //!
-//! Original code by Maarten Janssen (maarten@cheerful.nl) 2016-04-13
-//! Most recent version of the library can be found at my GitHub: https://github.com/DhrBaksteen/ArduinoOPL2
-//! Hacked for a OPL2LPT test program by pdewacht@gmail.com.
+//! Original code (C) Maarten Janssen (maarten@cheerful.nl) 2016-04-13
+//! https://github.com/DhrBaksteen/ArduinoOPL2
+//! Hacked for a OPL2LPT test program Peter De Wachter (pdewacht@gmail.com).
+//! https://github.com/pdewacht/adlipt
 //! Rewritten in Rust by Daniel Balsom for opl3-rs
 //!
+//! Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+//! and associated documentation files (the “Software”), to deal in the Software without
+//! restriction, including without limitation the rights to use, copy, modify, merge, publish,
+//! distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+//! Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or
+// substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+// BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
 
 use crossbeam_channel::Sender;
 
-use opl3_rs::Opl3Device;
+use opl3_rs::{Opl3Device, OplRegisterFile};
 
 use crate::opl::*;
 use crate::opl_instruments::{OPL_INSTRUMENT_PIANO1, OplInstrument};
@@ -150,10 +164,11 @@ pub struct MusicPlayer {
     opl3: Opl3Device,
     sender: Sender<CallbackMessage>,
     playing: bool,
+    debug: bool,
 }
 
 impl MusicPlayer {
-    pub fn new(sample_rate: u32, sender: Sender<CallbackMessage>) -> MusicPlayer {
+    pub fn new(sample_rate: u32, sender: Sender<CallbackMessage>, debug: bool) -> MusicPlayer {
         let samples_per_interval = (sample_rate / TIMER_FREQ as u32) as usize;
         println!("Samples per interval: {}", samples_per_interval);
         MusicPlayer {
@@ -164,14 +179,16 @@ impl MusicPlayer {
             opl3: Opl3Device::new(sample_rate),
             sender,
             playing: false,
+            debug,
         }
     }
 
     pub fn setup(&mut self) {
         self.tempo = 120;
-        self.opl3.reset(None);
+        _ = self.opl3.reset(None);
 
-        self.opl3.write_register(0x01, 0x20); // Set WSE=1
+        self.opl3
+            .write_register(0x01, 0x20, OplRegisterFile::Primary, true); // Set WSE=1
 
         set_instrument(&mut self.opl3, 0, &OPL_INSTRUMENT_PIANO1);
         set_block(&mut self.opl3, 0, 5);
@@ -193,7 +210,7 @@ impl MusicPlayer {
     }
 
     pub fn generate_direct(&mut self, samples: &mut [i16]) {
-        self.opl3.generate_samples(samples);
+        _ = self.opl3.generate_samples(samples);
     }
 
     pub fn timer_callback(&mut self) {
@@ -207,19 +224,7 @@ impl MusicPlayer {
                 return;
             }
             self.main_loop();
-            self.opl3.generate_samples(&mut self.sample_buf);
-
-            /*
-            let min = self.sample_buf.iter().cloned().fold(i16::MAX, i16::min);
-            let max = self.sample_buf.iter().cloned().fold(i16::MIN, i16::max);
-            println!(
-                "Sending {} samples, min: {}, max: {}, Example: {:?}",
-                self.sample_buf.len(),
-                min,
-                max,
-                &self.sample_buf[0..16]
-            );
-            */
+            _ = self.opl3.generate_samples(&mut self.sample_buf);
 
             self.sender
                 .send(CallbackMessage::HaveSamples(self.sample_buf.clone()))
@@ -260,33 +265,34 @@ impl MusicPlayer {
     }
 
     fn parse_tune(&mut self, t: usize) {
+        // Read and process tune data until we find a note or pause command.
         while self.tunes[t].data.peek() != 0 {
             if self.tunes[t].data.peek() == b'<' && self.tunes[t].octave > 1 {
-                // Decrease octave if greater than 1.
+                // '<': Decrease octave if greater than 1.
                 self.tunes[t].octave -= 1;
             } else if self.tunes[t].data.peek() == b'>' && self.tunes[t].octave < 7 {
-                // Increase octave if less than 7.
+                // '>': Increase octave if less than 7.
                 self.tunes[t].octave += 1;
             } else if self.tunes[t].data.peek() == b'o'
                 && self.tunes[t].data.peek_next() >= b'1'
                 && self.tunes[t].data.peek_next() <= b'7'
             {
-                // Set octave.
-                self.tunes[t].octave = self.tunes[t].data.peek_next() as i32 - 48;
+                // 'o': Set octave.
+                self.tunes[t].octave = (self.tunes[t].data.peek_next() - b'0') as i32;
                 self.tunes[t].data.next();
             } else if self.tunes[t].data.peek() == b'l' {
-                // Set default note duration.
+                // 'l': Set default note duration.
                 self.tunes[t].data.next();
                 let duration = self.parse_number(t);
                 if duration != 0 {
                     self.tunes[t].note_duration = duration as i32;
                 }
             } else if self.tunes[t].data.peek() == b'm' {
-                // Set note length in percent.
+                // 'm': Set note length in percent.
                 self.tunes[t].data.next();
                 self.tunes[t].note_length = self.parse_number(t) as u32;
             } else if self.tunes[t].data.peek() == b't' {
-                // Set song tempo.
+                // 't': Set song tempo.
                 self.tunes[t].data.next();
                 self.tempo = self.parse_number(t) as u32;
                 if self.tempo == 0 {
@@ -294,12 +300,12 @@ impl MusicPlayer {
                     self.tempo = 1;
                 }
             } else if self.tunes[t].data.peek() == b'p' || self.tunes[t].data.peek() == b'r' {
-                // Pause.
+                // 'p' or 'r': Pause.
                 self.tunes[t].data.next();
                 self.tunes[t].next_note_time = self.get_timer() + self.parse_duration(t);
                 break;
             } else if self.tunes[t].data.peek() >= b'a' && self.tunes[t].data.peek() <= b'g' {
-                // Next character is a note A..G so play it.
+                // 'a'-'g': Play note.
                 self.parse_note(t);
                 break;
             }
@@ -312,15 +318,18 @@ impl MusicPlayer {
         // Get index of note in base frequency table.
         let note_char = self.tunes[t].data.peek() as char;
         let note_idx = self.tunes[t].data.index();
-        let mut note: u8 = (self.tunes[t].data.peek() - 97) * 3;
-        self.tunes[t].data.next();
+
+        // Get relative note index, and adjust times 3 for sharp/flat notes.
+        let mut note: u8 = (self.tunes[t].data.get() - b'a') * 3;
 
         if self.tunes[t].data.peek() == b'-' {
+            self.tunes[t].data.next();
+            // Flat note.
             note += 1;
-            self.tunes[t].data.next();
         } else if self.tunes[t].data.peek() == b'+' {
-            note += 2;
             self.tunes[t].data.next();
+            // Sharp note.
+            note += 2;
         }
 
         // Get duration, set delay and play note.
@@ -338,20 +347,23 @@ impl MusicPlayer {
         );
         set_frequency(&mut self.opl3, self.tunes[t].channel, f);
 
-        println!(
-            "Index: {:05} Next: {:05} Char: {} Note: {:02}, channel: {} octave: {} freq: {:04} timer: {:05} duration: {} length: {} release_time: {}",
-            note_idx,
-            self.tunes[t].data.index(),
-            note_char,
-            note,
-            self.tunes[t].channel,
-            self.tunes[t].octave,
-            f,
-            self.get_timer(),
-            duration,
-            self.tunes[t].note_length,
-            self.tunes[t].release_time
-        );
+        if self.debug {
+            println!(
+                "Index: {:05} Next: {:05} Char: {} Note: {:02}, channel: {} octave: {} freq: {:04} timer: {:05} duration: {} length: {} release_time: {}",
+                note_idx,
+                self.tunes[t].data.index(),
+                note_char,
+                note,
+                self.tunes[t].channel,
+                self.tunes[t].octave,
+                f,
+                self.get_timer(),
+                duration,
+                self.tunes[t].note_length,
+                self.tunes[t].release_time
+            );
+        }
+
         set_key_on(&mut self.opl3, self.tunes[t].channel, true);
     }
 
@@ -370,9 +382,6 @@ impl MusicPlayer {
             base = 4;
         }
 
-        if duration == 0 {
-            duration = 1;
-        }
         // Calculate note duration in timer ticks (0.01s)
         let ticks = 6000u32 * base / duration / self.tempo;
         return ticks;
@@ -384,13 +393,16 @@ impl MusicPlayer {
             && self.tunes[t].data.peek() >= b'0'
             && self.tunes[t].data.peek() <= b'9'
         {
+            // Data is number. Parse it...
             while self.tunes[t].data.peek() != 0
                 && self.tunes[t].data.peek() >= b'0'
                 && self.tunes[t].data.peek() <= b'9'
             {
-                number = number * 10 + (self.tunes[t].data.get() - 48);
+                // Keep multiplying by 10 as long as we have additional digits.
+                number = number * 10 + (self.tunes[t].data.get() - b'0');
             }
-            self.tunes[t].data.prev()
+            // Last character wasn't a digit, so go back one step.
+            self.tunes[t].data.prev();
         }
         return number;
     }
