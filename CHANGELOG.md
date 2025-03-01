@@ -1,9 +1,14 @@
 
-v0.2.1
+v0.2.2
 ------
 Released 2025/03/01
 
 * Fixed symbol names when building on macos (Thanks einstein95)
+
+v0.2.1
+------
+
+* Yanked due to build issues
 
 v0.2.0
 ------
