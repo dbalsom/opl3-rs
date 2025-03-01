@@ -982,47 +982,47 @@ fn bindgen_test_layout_Opl3Chip() {
     );
 }
 extern "C" {
-    #[cfg_attr(not(target_os = "macos"), link_name = "{1}OPL3_Generate")]
+    #[cfg_attr(not(target_os = "macos"), link_name = "\u{1}OPL3_Generate")]
     #[cfg_attr(target_os = "macos", link_name = "OPL3_Generate")]
     pub fn Opl3Generate(chip: *mut Opl3Chip, buf: *mut i16);
 }
 extern "C" {
-    #[cfg_attr(not(target_os = "macos"), link_name = "{1}OPL3_GenerateResampled")]
+    #[cfg_attr(not(target_os = "macos"), link_name = "\u{1}OPL3_GenerateResampled")]
     #[cfg_attr(target_os = "macos", link_name = "OPL3_GenerateResampled")]
     pub fn Opl3GenerateResampled(chip: *mut Opl3Chip, buf: *mut i16);
 }
 extern "C" {
-    #[cfg_attr(not(target_os = "macos"), link_name = "{1}OPL3_Reset")]
+    #[cfg_attr(not(target_os = "macos"), link_name = "\u{1}OPL3_Reset")]
     #[cfg_attr(target_os = "macos", link_name = "OPL3_Reset")]
     pub fn Opl3Reset(chip: *mut Opl3Chip, samplerate: u32);
 }
 extern "C" {
-    #[cfg_attr(not(target_os = "macos"), link_name = "{1}OPL3_WriteReg")]
+    #[cfg_attr(not(target_os = "macos"), link_name = "\u{1}OPL3_WriteReg")]
     #[cfg_attr(target_os = "macos", link_name = "OPL3_WriteReg")]
     pub fn Opl3WriteReg(chip: *mut Opl3Chip, reg: u16, v: u8);
 }
 extern "C" {
-    #[cfg_attr(not(target_os = "macos"), link_name = "{1}OPL3_WriteRegBuffered")]
+    #[cfg_attr(not(target_os = "macos"), link_name = "\u{1}OPL3_WriteRegBuffered")]
     #[cfg_attr(target_os = "macos", link_name = "OPL3_WriteRegBuffered")]
     pub fn Opl3WriteRegBuffered(chip: *mut Opl3Chip, reg: u16, v: u8);
 }
 extern "C" {
-    #[cfg_attr(not(target_os = "macos"), link_name = "{1}OPL3_GenerateStream")]
+    #[cfg_attr(not(target_os = "macos"), link_name = "\u{1}OPL3_GenerateStream")]
     #[cfg_attr(target_os = "macos", link_name = "OPL3_GenerateStream")]
     pub fn Opl3GenerateStream(chip: *mut Opl3Chip, sndptr: *mut i16, numsamples: u32);
 }
 extern "C" {
-    #[cfg_attr(not(target_os = "macos"), link_name = "{1}OPL3_Generate4Ch")]
+    #[cfg_attr(not(target_os = "macos"), link_name = "\u{1}OPL3_Generate4Ch")]
     #[cfg_attr(target_os = "macos", link_name = "OPL3_Generate4Ch")]
     pub fn Opl3Generate4Ch(chip: *mut Opl3Chip, buf4: *mut i16);
 }
 extern "C" {
-    #[cfg_attr(not(target_os = "macos"), link_name = "{1}OPL3_Generate4ChResampled")]
+    #[cfg_attr(not(target_os = "macos"), link_name = "\u{1}OPL3_Generate4ChResampled")]
     #[cfg_attr(target_os = "macos", link_name = "OPL3_Generate4ChResampled")]
     pub fn Opl3Generate4ChResampled(chip: *mut Opl3Chip, buf4: *mut i16);
 }
 extern "C" {
-    #[cfg_attr(not(target_os = "macos"), link_name = "{1}OPL3_Generate4ChStream")]
+    #[cfg_attr(not(target_os = "macos"), link_name = "\u{1}OPL3_Generate4ChStream")]
     #[cfg_attr(target_os = "macos", link_name = "OPL3_Generate4ChStream")]
     pub fn Opl3Generate4ChStream(
         chip: *mut Opl3Chip,
