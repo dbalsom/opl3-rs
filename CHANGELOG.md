@@ -1,6 +1,13 @@
+
+v0.2.1
+------
+Released 2025/03/01
+
+* Fixed symbol names when building on macos (Thanks einstein95)
+
 v0.2.0
 ------
-Released XXXX/XX/XX
+Released 2024/07/06
 
 * Added stats() function to Opl3Device for retrieving statistics.
 * Added an option to the example `play_tune` to save the output as a wav via `hound`.
