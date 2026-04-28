@@ -367,9 +367,11 @@ impl Opl3Device {
             match reg {
                 OPL_TIMER_1_REGISTER => {
                     self.timers[0].counter = value;
+                    self.timers[0].preset = value;
                 }
                 OPL_TIMER_2_REGISTER => {
                     self.timers[1].counter = value;
+                    self.timers[1].preset = value;
                 }
                 OPL_TIMER_CONTROL_REGISTER => {
                     if (value & OPL_IRQ_FLAG) != 0 {
@@ -769,4 +771,26 @@ impl Opl3Chip {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timer_reloads_from_preset() {
+        let mut device = Opl3Device::new(44_100);
+
+        device.write_register(OPL_TIMER_1_REGISTER, 254, OplRegisterFile::Primary, false);
+        device.write_register(
+            OPL_TIMER_CONTROL_REGISTER,
+            OPL_TIMER_1_START,
+            OplRegisterFile::Primary,
+            false,
+        );
+
+        device.run(OPL_TIMER_1_RATE as f64);
+        assert_eq!(device.read_status(), 0);
+
+        device.run(OPL_TIMER_1_RATE as f64);
+        assert_eq!(device.read_status(), OPL_IRQ_FLAG | OPL_TIMER_1_MASK);
+        assert_eq!(device.timers[0].counter, 254);
+    }
+}

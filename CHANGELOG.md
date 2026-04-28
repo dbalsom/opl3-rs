@@ -1,3 +1,8 @@
+v0.2.3
+------
+Released 2026/04/28
+
+* Fixed Opl3Device timer register writes to update timer reload presets. (Thanks TheAllTinker)
 
 v0.2.2
 ------
