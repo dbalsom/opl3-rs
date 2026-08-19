@@ -1,6 +1,13 @@
 opl3-rs
 =======
 
+# Obsolescence
+
+This crate has been superceded by a native Rust port, [nuked-opl3](https://crates.io/crates/nuked-opl3).
+Version 1.0 of the `nuked-opl3` crate is 100% API compatible with the last version of `opl3-rs`. 
+
+# About
+
 A small library to provide bindings for the [Nuked-OPL3 library](https://github.com/nukeykt/Nuked-OPL3).
 
 [![Crates.io version][crate-img]][crate]
