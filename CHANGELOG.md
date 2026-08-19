@@ -1,4 +1,4 @@
-2026/08/19
+v0.2.4 - 2026/08/19
 ----------
 
 Deprecated crate in favor of [nuked-opl3](https://crates.io/crates/nuked-opl3)
